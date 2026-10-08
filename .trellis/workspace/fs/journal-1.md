@@ -11,3 +11,27 @@
 - 子代理并行分发 S2/S3、S4/S5；主会话完成 S1/S6/S7 集成与冒烟（mock 端到端：启动即探测、手动 409、Origin 403、重启一致、平滑退出）。
 - trellis-check 修复 8 项（关键：probe deadlinePassed 判定 bug、engine select 双就绪幽灵 cancelled 记录、main log.Fatal 跳过优雅退出、ProbeNow seq=0 契约、web XSS/失败原因展示）。
 - 沉淀 .trellis/spec/backend/go-conventions.md（状态字符串四处同步契约、JSONL 纪律、调度 select gotcha）。
+
+
+## Session 1: 实现 LLM 接口可用性监测工具完整 MVP
+<!-- trellis-session: v=2 fp=b81b8d17432e6011 -->
+
+**Date**: 2026-10-08
+**Task**: 实现 LLM 接口可用性监测工具完整 MVP
+**Branch**: `dev`
+
+### Summary
+
+按 docs/REQUIREMENTS.md v0.2 实现 MVP：probe 流式探测判定（双期限+10 状态分类）、store JSONL 存储统计、engine 独立调度、server REST API（六态状态/Key 掩码/同源防护）、内嵌 Web 面板与 6 平台交叉构建。52 项测试全绿（-race）；trellis-check 修复 8 项缺陷（关键：首内容期限解除判定 bug、select 双就绪幽灵 cancelled 记录）；沉淀 spec/backend/go-conventions.md。验收 A1 全过、A2 除真机 Windows 双击手测外全过（产物 dist/）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1da8ba5` | feat: implement LLM availability monitor MVP (engine, store, API, panel) |
+| `cac3ede` | docs: add requirements doc v0.2 |
+| `d16acb5` | chore(trellis): task artifacts and Go conventions spec |
+
+### Status
+
+[OK] **Completed**
