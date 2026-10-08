@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM 接口可用性监测</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>LLM 接口可用性监测</h1>
+  <div class="header-actions">
+    <span id="storage-warn" class="warn hidden">存储异常</span>
+    <button id="btn-add" class="primary">+ 添加监测对象</button>
+  </div>
+</header>
+
+<main>
+  <!-- 概览 -->
+  <section id="overview">
+    <div id="provider-list" class="cards">
+      <p class="empty-hint">暂无监测对象，点击右上角添加。</p>
+    </div>
+  </section>
+
+  <!-- 详情 -->
+  <section id="detail" class="hidden">
+    <div class="detail-head">
+      <button id="btn-back" class="ghost">&larr; 返回</button>
+      <h2 id="detail-title"></h2>
+      <span id="detail-status" class="badge"></span>
+    </div>
+    <div class="toolbar">
+      <label>目标版本
+        <select id="sel-revision"><option value="">当前</option></select>
+      </label>
+      <label>时间窗
+        <select id="sel-window">
+          <option value="1h">最近 1 小时</option>
+          <option value="24h" selected>最近 24 小时</option>
+          <option value="7d">最近 7 天</option>
+        </select>
+      </label>
+      <label>来源
+        <select id="sel-source">
+          <option value="scheduled">定时探测</option>
+          <option value="manual">手动测试</option>
+          <option value="all">全部</option>
+        </select>
+      </label>
+      <span id="detail-samples" class="muted"></span>
+    </div>
+
+    <div class="stat-row" id="stat-row"></div>
+
+    <div class="charts">
+      <div class="chart-card">
+        <h3>成功率趋势</h3>
+        <div id="chart-ok" class="chart"></div>
+      </div>
+      <div class="chart-card">
+        <h3>成功请求耗时（均值）</h3>
+        <div id="chart-latency" class="chart"></div>
+      </div>
+    </div>
+
+    <div class="manual-box">
+      <h3>手动测试</h3>
+      <p class="muted">手动结果单独记录，不计入定时统计与监测状态。</p>
+      <button id="btn-probe" class="primary">立即测试</button>
+      <div id="manual-result" class="hidden"></div>
+    </div>
+
+    <div class="results-box">
+      <h3>探测明细</h3>
+      <div class="table-wrap">
+        <table id="results-table">
+          <thead>
+            <tr><th>开始时间</th><th>来源</th><th>结果</th><th>状态</th><th>TTFT</th><th>总耗时</th><th>HTTP</th><th>错误 / 说明</th></tr>
+          </thead>
+          <tbody id="results-body"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button id="btn-prev" class="ghost" disabled>&larr; 上一页</button>
+        <button id="btn-next" class="ghost" disabled>下一页 &rarr;</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 配置弹窗 -->
+<dialog id="dlg-provider">
+  <form id="form-provider" method="dialog">
+    <h2 id="dlg-title">监测对象</h2>
+    <input type="hidden" id="f-id">
+    <div class="grid">
+      <label>名称 *<input id="f-name" required maxlength="100" placeholder="例如 DeepSeek 官方"></label>
+      <label>Base URL *<input id="f-baseurl" required placeholder="https://example.com/v1"></label>
+      <label>API Key
+        <input id="f-apikey" type="password" autocomplete="off" placeholder="">
+        <span id="f-apikey-hint" class="muted"></span>
+        <label class="check"><input type="checkbox" id="f-clearkey"> 清除已保存的 Key</label>
+      </label>
+      <label>模型 *<input id="f-model" required placeholder="deepseek-chat"></label>
+      <label>探测提示词<textarea id="f-prompt" rows="2"></textarea></label>
+      <div class="row3">
+        <label>max_tokens<input id="f-maxtokens" type="number" min="1" value="128"></label>
+        <label>探测间隔（分钟，0=仅手动）<input id="f-interval" type="number" min="0" step="1" value="5"></label>
+        <label class="check"><input type="checkbox" id="f-enabled" checked> 启用定时调度</label>
+      </div>
+      <div class="row4">
+        <label>首内容超时（秒）<input id="f-ttft" type="number" min="1" step="0.1" value="10"></label>
+        <label>总超时（秒）<input id="f-timeout" type="number" min="1" step="0.1" value="60"></label>
+        <label>首内容慢阈值（秒）<input id="f-slow" type="number" min="0.1" step="0.1" value="2"></label>
+        <label class="check"></label>
+      </div>
+    </div>
+    <p class="form-error hidden" id="form-error"></p>
+    <div class="dlg-actions">
+      <button type="button" id="dlg-cancel" class="ghost">取消</button>
+      <button type="submit" id="dlg-save" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 删除确认 -->
+<dialog id="dlg-delete">
+  <form method="dialog">
+    <h2>删除监测对象</h2>
+    <p id="delete-msg"></p>
+    <div class="dlg-actions">
+      <button value="cancel" class="ghost">取消</button>
+      <button value="ok" class="danger">删除</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
