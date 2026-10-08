@@ -1,0 +1,3 @@
+{"file": "docs/REQUIREMENTS.md", "reason": "需求唯一权威来源：全部判定规则、状态优先级、API、验收标准（v0.2 评审定稿）"}
+{"file": ".trellis/tasks/10-08-mvp-llm-monitor/research/probe-judgment-rules.md", "reason": "§3 探测判定口径浓缩：首内容判据、双超时分类、SSE 解析、统计分母——probe 包实现必读"}
+{"file": ".trellis/tasks/10-08-mvp-llm-monitor/research/state-and-scheduling.md", "reason": "§4/§7/§9/§10 浓缩：状态六态、调度、revision、存储、同源防护——engine/store/server 实现必读"}

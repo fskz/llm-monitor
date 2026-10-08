@@ -14,10 +14,11 @@ This directory contains guidelines for backend development. Fill in each file wi
 
 | Guide | Description | Status |
 |-------|-------------|--------|
+| [Go Conventions](./go-conventions.md) | Package layout, status-string contract, probe judgment rules, JSONL discipline, scheduling gotchas, server security contracts | **Filled** (from MVP task 10-08) |
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill |
-| [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
+| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill (storage is JSONL; see go-conventions.md) |
+| [Error Handling](./error-handling.md) | Error types, handling strategies | See go-conventions.md §Probe judgment rules |
+| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | See go-conventions.md §Wrong vs Correct |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 
 ---
