@@ -8,12 +8,19 @@ import (
 )
 
 // streamEvent is the subset of an OpenAI streaming chat chunk that probe
-// judgment depends on. Fields we do not act on (usage, reasoning_content,
-// tool_calls, id, created, ...) are intentionally absent: they must not
-// affect first-content detection or classification.
+// judgment depends on. Usage is captured as observational evidence (token
+// counts) but must never affect first-content detection or classification;
+// other fields we do not act on (reasoning_content, tool_calls, id,
+// created, ...) are intentionally absent.
 type streamEvent struct {
 	Error   json.RawMessage `json:"error"`
 	Choices []streamChoice  `json:"choices"`
+	Usage   *usageInfo      `json:"usage"`
+}
+
+type usageInfo struct {
+	PromptTokens     *int `json:"prompt_tokens"`
+	CompletionTokens *int `json:"completion_tokens"`
 }
 
 type streamChoice struct {
@@ -85,9 +92,16 @@ func (r *run) handleData(data string) bool {
 		r.st.errDetail = "error event in stream: " + msg
 		return true
 	}
+	// Capture usage evidence before any branch: purely observational, never
+	// feeds the classification state machine. Last event carrying usage wins.
+	if ev.Usage != nil {
+		r.st.promptTokens = ev.Usage.PromptTokens
+		r.st.completionTokens = ev.Usage.CompletionTokens
+	}
 	if len(ev.Choices) == 0 {
 		// Usage-only or otherwise choice-less events are skipped, never
-		// errors (we do not request include_usage, but endpoints may send it).
+		// errors (usage is requested only when the provider opts in, but
+		// endpoints may always volunteer it).
 		return false
 	}
 	c := ev.Choices[0]

@@ -17,7 +17,8 @@ class H(BaseHTTPRequestHandler):
         ev({"choices": [{"delta": {"role": "assistant"}}]})
         time.sleep(0.2)
         ev({"choices": [{"delta": {"content": "pong，探测成功"}}]})
-        ev({"choices": [{"delta": {}, "finish_reason": "stop"}]})
+        time.sleep(0.4)  # decode span so smoke tests can observe decode_tps
+        ev({"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 48, "completion_tokens": 24}})
         self.wfile.write(b"data: [DONE]\n\n")
     def log_message(self, *a):
         pass

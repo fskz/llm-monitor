@@ -68,7 +68,11 @@ type Provider struct {
 	TTFTSlowMs    int    `json:"ttft_slow_ms"`
 	IntervalSec   int    `json:"interval_sec"`
 	Enabled       bool   `json:"enabled"`
-	CreatedAt     int64  `json:"created_at"`
+	// IncludeUsage asks the endpoint for stream_options.include_usage so
+	// throughput metrics can use exact server-reported token counts
+	// (opt-in; off keeps requests identical to the MVP baseline).
+	IncludeUsage bool  `json:"include_usage"`
+	CreatedAt    int64 `json:"created_at"`
 }
 
 // Result is one persisted probe outcome (REQUIREMENTS.md §9.2). Seq is
@@ -91,6 +95,10 @@ type Result struct {
 	HTTPStatus    *int   `json:"http_status"`
 	Error         string `json:"error,omitempty"`
 	OutputPreview string `json:"output_preview,omitempty"`
+	// Token counts from the endpoint's usage event; nil = not observed
+	// (same null semantics as ttft_ms — never 0/-1 standing in for unknown).
+	PromptTokens     *int `json:"prompt_tokens"`
+	CompletionTokens *int `json:"completion_tokens"`
 }
 
 // configFile is the on-disk shape of config.json.

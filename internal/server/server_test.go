@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -993,5 +994,69 @@ func TestProbingHintAndStorageError(t *testing.T) {
 	}
 	if v.StorageError == "" {
 		t.Error("storage_error empty, want engine error surfaced")
+	}
+}
+
+// IncludeUsage round-trips through the API and the new throughput fields
+// surface in stats (task 10-09 A5). The manual-probe response path is
+// covered by TestProbeEndpoint's fake engine plus store.ResultTPS unit
+// behavior in the store package.
+func TestIncludeUsageRoundTripAndThroughputFields(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	body := `{"name":"u","base_url":"http://127.0.0.1:1/v1","model":"m","prompt":"p",` +
+		`"max_tokens":16,"interval_sec":0,"timeout_sec":30,"ttft_timeout_ms":10000,` +
+		`"ttft_slow_ms":2000,"enabled":true,"include_usage":true}`
+	code, respBody := mustPost(t, s, body, nil)
+	if code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", code, respBody)
+	}
+	var created struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(respBody), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	_, raw := serve(t, s, "GET", "/api/providers", "", nil)
+	if !strings.Contains(raw, `"include_usage":true`) {
+		t.Fatalf("overview missing include_usage=true: %s", raw)
+	}
+
+	// A stored ok sample with usage feeds avg_decode_tps / avg_prefill_tps.
+	prompt, completion := 64, 32
+	ttft, total := int64(200), int64(1200)
+	now := time.Now().UnixMilli()
+	appendDirect(t, s.st, store.Result{
+		ProviderID: created.ID, Revision: 1, BaseURL: "http://x/v1", Model: "m",
+		Source: store.SourceScheduled, StartedAt: now - 1000, FinishedAt: now - 1000 + total,
+		Success: true, TTFTMs: &ttft, TotalMs: total, Status: "ok",
+		PromptTokens: &prompt, CompletionTokens: &completion,
+	})
+
+	_, rawStats := serve(t, s, "GET", "/api/stats?provider="+strconv.Itoa(created.ID)+"&window=1h", "", nil)
+	for _, want := range []string{`"avg_decode_tps":31`, `"avg_prefill_tps":3`} {
+		if !strings.Contains(rawStats, want) {
+			t.Fatalf("stats missing %s: %s", want, rawStats)
+		}
+	}
+
+	// The series buckets carry the same two fields for the sampled bucket.
+	_, rawSeries := serve(t, s, "GET", "/api/series?provider="+strconv.Itoa(created.ID)+"&window=1h", "", nil)
+	if !strings.Contains(rawSeries, `"avg_decode_tps":31`) || !strings.Contains(rawSeries, `"avg_prefill_tps":3`) {
+		t.Fatalf("series missing throughput fields: %s", rawSeries)
+	}
+
+	// PUT without the field resets it to false (full-replace semantics,
+	// consistent with the other boolean fields).
+	res, _ := serve(t, s, "PUT", "/api/providers/"+strconv.Itoa(created.ID),
+		`{"name":"u","base_url":"http://127.0.0.1:1/v1","model":"m","prompt":"p",`+
+			`"max_tokens":16,"interval_sec":0,"timeout_sec":30,"ttft_timeout_ms":10000,`+
+			`"ttft_slow_ms":2000,"enabled":true}`, nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("PUT = %d", res.StatusCode)
+	}
+	_, raw2 := serve(t, s, "GET", "/api/providers", "", nil)
+	if strings.Contains(raw2, `"include_usage":true`) {
+		t.Fatalf("include_usage must reset to false on full-replace PUT: %s", raw2)
 	}
 }

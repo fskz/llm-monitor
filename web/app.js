@@ -54,6 +54,8 @@ function fmtMs(v) {
   return (v / 1000).toFixed(2) + " s";
 }
 
+function fmtTPS(v) { return v == null ? "—" : v.toFixed(1) + " tok/s"; }
+
 function fmtTime(ms) {
   if (!ms) return "—";
   const d = new Date(ms);
@@ -206,6 +208,8 @@ function renderStats(stats) {
     { l: "错误", v: `${stats.error ?? 0}（${fmtPct(stats.error_pct)}）`, cls: "rate-error" },
     { l: "平均 TTFT（成功）", v: fmtMs(stats.avg_ttft_ms) },
     { l: "平均总耗时（成功）", v: fmtMs(stats.avg_total_ms) },
+    { l: "平均 decode 吞吐（成功）", v: fmtTPS(stats.avg_decode_tps) },
+    { l: "平均 prefill 吞吐（成功，近似·含排队）", v: fmtTPS(stats.avg_prefill_tps) },
   ];
   row.innerHTML = items.map((it) =>
     `<div class="stat"><div class="v ${it.cls || ""}">${esc(String(it.v))}</div><div class="l">${it.l}</div></div>`).join("");
@@ -348,6 +352,7 @@ function openProviderDialog(id) {
   $("f-timeout").value = p ? p.timeout_sec : 60;
   $("f-slow").value = p ? p.ttft_slow_ms / 1000 : 2;
   $("f-enabled").checked = p ? p.enabled : true;
+  $("f-usage").checked = p ? !!p.include_usage : false;
   dlg.showModal();
 }
 
@@ -364,6 +369,7 @@ function readProviderForm() {
     ttft_timeout_ms: Math.round(Number($("f-ttft").value || 0) * 1000),
     ttft_slow_ms: Math.round(Number($("f-slow").value || 0) * 1000),
     enabled: $("f-enabled").checked,
+    include_usage: $("f-usage").checked,
   };
 }
 
@@ -437,6 +443,8 @@ async function manualProbe() {
           ${r.status === "ok" && r.slow ? `<span class="muted">（首内容较慢）</span>` : ""}</td></tr>
         <tr><td>TTFT</td><td>${fmtMs(r.ttft_ms)}</td></tr>
         <tr><td>总耗时</td><td>${fmtMs(r.total_ms)}</td></tr>
+        ${r.prompt_tokens != null || r.completion_tokens != null ? `<tr><td>Token 数</td><td>prompt ${r.prompt_tokens ?? "—"} / completion ${r.completion_tokens ?? "—"}</td></tr>` : ""}
+        ${r.decode_tps != null || r.prefill_tps != null ? `<tr><td>吞吐</td><td>decode ${fmtTPS(r.decode_tps)} · prefill ${fmtTPS(r.prefill_tps)}（近似）</td></tr>` : ""}
         <tr><td>HTTP</td><td>${r.http_status ?? "—"}</td></tr>
         ${r.error ? `<tr><td>错误</td><td class="wrap">${esc(r.error)}</td></tr>` : ""}
       </table>

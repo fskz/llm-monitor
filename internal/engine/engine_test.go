@@ -483,3 +483,40 @@ func TestTwentyProvidersScheduleIndependently(t *testing.T) {
 		t.Fatalf("max concurrent = %d, want <= %d", ps.maxConcurrent(), n)
 	}
 }
+
+// IncludeUsage flows from the provider config into the probe request and the
+// captured usage lands in the persisted Result (task 10-09 S3).
+func TestIncludeUsageFlowsToRequestAndResult(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"include_usage":true`) {
+			t.Errorf("request missing stream_options.include_usage: %s", body)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w,
+			"data: {\"choices\":[{\"delta\":{\"content\":\"pong\"}}]}\n\n"+
+				"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":5}}\n\n"+
+				"data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	eng, st := newTestEngine(t)
+	// interval 0 = manual-only: no scheduler racing ProbeNow for the shared
+	// in-flight slot (same pattern as TestProbeNowConflict).
+	p := addProvider(t, st, "usage", srv.URL, 0, true)
+	p.IncludeUsage = true
+	if err := st.UpdateProvider(p); err != nil {
+		t.Fatal(err)
+	}
+	eng.Add(p) // register the runner so ProbeNow finds it
+
+	res, err := eng.ProbeNow(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PromptTokens == nil || *res.PromptTokens != 12 {
+		t.Fatalf("PromptTokens = %v, want 12", res.PromptTokens)
+	}
+	if res.CompletionTokens == nil || *res.CompletionTokens != 5 {
+		t.Fatalf("CompletionTokens = %v, want 5", res.CompletionTokens)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -465,5 +466,122 @@ func TestTruncateRunes(t *testing.T) {
 	}
 	if got := truncateRunes("你好世界", 3); got != "你好世" {
 		t.Fatalf("truncateRunes = %q, want %q", got, "你好世")
+	}
+}
+
+// IncludeUsage: the request must carry stream_options only when the switch is
+// on (A1/A2), the usage event is captured (A2), absent usage stays nil (A3),
+// usage arriving after [DONE] is not consumed (design boundary), and a
+// usage value of 0 is still evidence (0, not nil).
+func TestIncludeUsageRequestAndCapture(t *testing.T) {
+	var sawBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sawBody = map[string]any{}
+		_ = json.Unmarshal(body, &sawBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseWrite(w,
+			`data: {"choices":[{"delta":{"content":"Hello world"}}]}`,
+			"",
+			`data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":64,"completion_tokens":32}}`,
+			"",
+			`data: [DONE]`,
+			"")
+	}))
+	defer srv.Close()
+
+	// A1: switch off => no stream_options key at all. Capture itself is
+	// switch-independent: an endpoint that volunteers usage is still
+	// recorded (§3.2 allows unsolicited usage; evidence is never fabricated).
+	o := Do(context.Background(), testClient(), testTarget(srv.URL, 3000, 5000))
+	assertStatus(t, o, StatusOK)
+	if _, present := sawBody["stream_options"]; present {
+		t.Fatalf("request carried stream_options with switch off: %v", sawBody)
+	}
+	if o.PromptTokens == nil || *o.PromptTokens != 64 {
+		t.Fatalf("volunteered usage must be captured even with switch off, got %v", o.PromptTokens)
+	}
+
+	// A2: switch on => stream_options present and usage captured.
+	tgt := testTarget(srv.URL, 3000, 5000)
+	tgt.IncludeUsage = true
+	o = Do(context.Background(), testClient(), tgt)
+	assertStatus(t, o, StatusOK)
+	opts, ok := sawBody["stream_options"].(map[string]any)
+	if !ok || opts["include_usage"] != true {
+		t.Fatalf("stream_options = %v, want include_usage=true", sawBody["stream_options"])
+	}
+	if o.PromptTokens == nil || *o.PromptTokens != 64 {
+		t.Fatalf("PromptTokens = %v, want 64", o.PromptTokens)
+	}
+	if o.CompletionTokens == nil || *o.CompletionTokens != 32 {
+		t.Fatalf("CompletionTokens = %v, want 32", o.CompletionTokens)
+	}
+}
+
+// A3: endpoint never sends usage => nil outcome fields, success unchanged.
+func TestIncludeUsageAbsentStaysNil(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseWrite(w,
+			`data: {"choices":[{"delta":{"content":"Hi"}}]}`,
+			"",
+			`data: [DONE]`,
+			"")
+	}))
+	defer srv.Close()
+	tgt := testTarget(srv.URL, 3000, 5000)
+	tgt.IncludeUsage = true
+	o := Do(context.Background(), testClient(), tgt)
+	assertStatus(t, o, StatusOK)
+	if o.PromptTokens != nil || o.CompletionTokens != nil {
+		t.Fatalf("tokens should be nil without usage, got %v %v", o.PromptTokens, o.CompletionTokens)
+	}
+}
+
+// Design boundary: usage after [DONE] is not consumed — the read loop stops
+// at [DONE] (classification semantics outrank evidence gathering), so the
+// trailing usage event never arrives.
+func TestUsageAfterDoneNotConsumed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseWrite(w,
+			`data: {"choices":[{"delta":{"content":"Hi"}}]}`,
+			"",
+			`data: [DONE]`,
+			"",
+			`data: {"usage":{"prompt_tokens":9,"completion_tokens":9}}`,
+			"")
+	}))
+	defer srv.Close()
+	tgt := testTarget(srv.URL, 3000, 5000)
+	tgt.IncludeUsage = true
+	o := Do(context.Background(), testClient(), tgt)
+	assertStatus(t, o, StatusOK)
+	if o.PromptTokens != nil {
+		t.Fatalf("usage after [DONE] must not be captured, got %v", *o.PromptTokens)
+	}
+}
+
+// usage counts of 0 are legitimate observations and must be kept (0, nil
+// distinction matters downstream for throughput denominators).
+func TestUsageZeroCaptured(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseWrite(w,
+			`data: {"choices":[{"delta":{"content":"Hi"}}]}`,
+			"",
+			`data: {"choices":[],"usage":{"prompt_tokens":0,"completion_tokens":0}}`,
+			"",
+			`data: [DONE]`,
+			"")
+	}))
+	defer srv.Close()
+	tgt := testTarget(srv.URL, 3000, 5000)
+	tgt.IncludeUsage = true
+	o := Do(context.Background(), testClient(), tgt)
+	assertStatus(t, o, StatusOK)
+	if o.PromptTokens == nil || *o.PromptTokens != 0 {
+		t.Fatalf("PromptTokens = %v, want pointer to 0", o.PromptTokens)
 	}
 }

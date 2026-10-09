@@ -25,6 +25,7 @@ type providerView struct {
 	TTFTTimeoutMs int            `json:"ttft_timeout_ms"`
 	TTFTSlowMs    int            `json:"ttft_slow_ms"`
 	Enabled       bool           `json:"enabled"`
+	IncludeUsage  bool           `json:"include_usage"`
 	APIKeySet     bool           `json:"api_key_set"`
 	APIKeyMask    string         `json:"api_key_mask"`
 	Status        string         `json:"status"`
@@ -49,10 +50,13 @@ type lastProbeView struct {
 }
 
 // probeView is the response of POST /api/providers/{id}/probe: the manual
-// probe result plus the slow-TTFT hint (web/app.js manualProbe).
+// probe result plus the slow-TTFT hint and the derived per-probe throughput
+// (nil when usage evidence is missing; web/app.js manualProbe).
 type probeView struct {
 	*store.Result
-	Slow bool `json:"slow"`
+	Slow       bool     `json:"slow"`
+	DecodeTPS  *float64 `json:"decode_tps"`
+	PrefillTPS *float64 `json:"prefill_tps"`
 }
 
 // viewOf assembles the overview element of one provider: monitor status
@@ -73,6 +77,7 @@ func (s *Server) viewOf(p store.Provider) providerView {
 		TTFTTimeoutMs: p.TTFTTimeoutMs,
 		TTFTSlowMs:    p.TTFTSlowMs,
 		Enabled:       p.Enabled,
+		IncludeUsage:  p.IncludeUsage,
 		APIKeySet:     p.APIKey != "",
 		APIKeyMask:    maskKey(p.APIKey),
 		LastProbe:     nil,

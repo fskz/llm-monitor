@@ -28,11 +28,13 @@ type Stats struct {
 // exclusively — failed-request durations never pollute response-time
 // statistics (REQUIREMENTS.md §3.4).
 type SeriesBucket struct {
-	StartMs    int64
-	Samples    int
-	OKPct      *float64
-	AvgTTFTMs  *int64
-	AvgTotalMs *int64
+	StartMs       int64
+	Samples       int
+	OKPct         *float64
+	AvgTTFTMs     *int64
+	AvgTotalMs    *int64
+	AvgDecodeTPS  *float64 `json:"avg_decode_tps"`
+	AvgPrefillTPS *float64 `json:"avg_prefill_tps"`
 }
 
 // RevisionAll selects every revision in Stats and Series (REQUIREMENTS.md
@@ -62,6 +64,53 @@ func (s *Store) Revisions(providerID int) []int {
 	}
 	sort.Ints(out)
 	return out
+}
+
+// ResultTPS derives one result's throughput with the same formula and
+// evidence guards as the stored-sample averages (decodeTPS/prefillTPS), so
+// the manual-probe response and the statistics never drift apart. Callers
+// restrict it to ok samples (§3.1: throughput is defined for ok samples
+// only); decode selects the decode metric, otherwise prefill. Nil when the
+// evidence does not qualify.
+func ResultTPS(r Result, decode bool) *float64 {
+	var v float64
+	var ok bool
+	if decode {
+		v, ok = decodeTPS(r)
+	} else {
+		v, ok = prefillTPS(r)
+	}
+	if !ok {
+		return nil
+	}
+	return &v
+}
+
+// decodeTPS derives the decode throughput of one ok sample from exact
+// server-reported counts: (completion_tokens-1) over the decode span
+// (total_ms - ttft_ms). The first token belongs to prefill, hence -1.
+// Per approved PRD A4, samples with completion_tokens<2 or a zero-length
+// decode span (total==ttft) are excluded from the average — a 1-token
+// response decodes nothing, so it carries no decode-rate evidence.
+func decodeTPS(r Result) (float64, bool) {
+	if r.CompletionTokens == nil || r.TTFTMs == nil || *r.CompletionTokens < 2 {
+		return 0, false
+	}
+	span := float64(r.TotalMs) - float64(*r.TTFTMs)
+	if span <= 0 {
+		return 0, false
+	}
+	return float64(*r.CompletionTokens-1) / (span / 1000), true
+}
+
+// prefillTPS derives the prompt-side throughput: prompt_tokens over ttft_ms.
+// TTFT includes queueing, so this is an approximate lower bound, never an
+// exact prefill rate; requires both values positive.
+func prefillTPS(r Result) (float64, bool) {
+	if r.PromptTokens == nil || r.TTFTMs == nil || *r.PromptTokens < 1 || *r.TTFTMs <= 0 {
+		return 0, false
+	}
+	return float64(*r.PromptTokens) / (float64(*r.TTFTMs) / 1000), true
 }
 
 // AvgOnOK returns the average TTFT and total duration of the ok samples in
@@ -101,6 +150,47 @@ func (s *Store) AvgOnOK(providerID int, revision int, window time.Duration) (avg
 		avgTTFT = &t
 	}
 	return avgTTFT, &avg
+}
+
+// AvgThroughput returns the average decode/prefill throughput of the ok
+// samples in the window that carry usable usage evidence. Each metric has
+// its own denominator (a sample can qualify for one and not the other);
+// nil when no sample qualifies.
+func (s *Store) AvgThroughput(providerID int, revision int, window time.Duration) (avgDecode, avgPrefill *float64) {
+	pr := s.resultsFor(providerID)
+	if pr == nil {
+		return nil, nil
+	}
+	records := pr.snapshot()
+
+	minStartedAt := time.Now().Add(-window).UnixMilli()
+	var decodeSum, prefillSum float64
+	decodeCount, prefillCount := 0, 0
+	for _, r := range records {
+		if r.Revision != revision && revision != RevisionAll {
+			continue
+		}
+		if !inWindow(r, minStartedAt) || r.Status != statusOK {
+			continue
+		}
+		if d, ok := decodeTPS(r); ok {
+			decodeSum += d
+			decodeCount++
+		}
+		if p, ok := prefillTPS(r); ok {
+			prefillSum += p
+			prefillCount++
+		}
+	}
+	if decodeCount > 0 {
+		v := decodeSum / float64(decodeCount)
+		avgDecode = &v
+	}
+	if prefillCount > 0 {
+		v := prefillSum / float64(prefillCount)
+		avgPrefill = &v
+	}
+	return avgDecode, avgPrefill
 }
 
 // inWindow reports whether a result belongs to the denominator or a
@@ -215,6 +305,10 @@ func (s *Store) Series(providerID int, revision int, window time.Duration) []Ser
 	ttfts := make([]int64, count)
 	ttftCount := make([]int, count)
 	bucketSamples := make([]int, count)
+	decodeSum := make([]float64, count)
+	decodeCount := make([]int, count)
+	prefillSum := make([]float64, count)
+	prefillCount := make([]int, count)
 
 	for _, r := range records {
 		if r.Revision != revision && revision != RevisionAll {
@@ -235,6 +329,14 @@ func (s *Store) Series(providerID int, revision int, window time.Duration) []Ser
 				ttfts[idx] += *r.TTFTMs
 				ttftCount[idx]++
 			}
+			if d, ok := decodeTPS(r); ok {
+				decodeSum[idx] += d
+				decodeCount[idx]++
+			}
+			if p, ok := prefillTPS(r); ok {
+				prefillSum[idx] += p
+				prefillCount[idx]++
+			}
 		}
 	}
 
@@ -249,6 +351,14 @@ func (s *Store) Series(providerID int, revision int, window time.Duration) []Ser
 				if ttftCount[i] > 0 {
 					avgT := ttfts[i] / int64(ttftCount[i])
 					b.AvgTTFTMs = &avgT
+				}
+				if decodeCount[i] > 0 {
+					v := decodeSum[i] / float64(decodeCount[i])
+					b.AvgDecodeTPS = &v
+				}
+				if prefillCount[i] > 0 {
+					v := prefillSum[i] / float64(prefillCount[i])
+					b.AvgPrefillTPS = &v
 				}
 			}
 		}

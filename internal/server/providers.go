@@ -31,6 +31,7 @@ type providerPayload struct {
 	TTFTTimeoutMs int     `json:"ttft_timeout_ms"`
 	TTFTSlowMs    int     `json:"ttft_slow_ms"`
 	Enabled       bool    `json:"enabled"`
+	IncludeUsage  bool    `json:"include_usage"`
 }
 
 // validate mirrors the panel-side checks (web/app.js validateProvider):
@@ -83,6 +84,7 @@ func (c *providerPayload) toProvider(key string) store.Provider {
 		TTFTTimeoutMs: c.TTFTTimeoutMs,
 		TTFTSlowMs:    c.TTFTSlowMs,
 		Enabled:       c.Enabled,
+		IncludeUsage:  c.IncludeUsage,
 	}
 }
 
@@ -218,8 +220,14 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// slow mirrors the panel badge for manual probes (web/app.js
-	// manualProbe reads r.slow).
-	writeJSON(w, http.StatusOK, probeView{Result: res, Slow: slowTTFT(p, res)})
+	// manualProbe reads r.slow); throughput uses the same derivation as the
+	// stored-sample statistics.
+	pv := probeView{Result: res, Slow: slowTTFT(p, res)}
+	if res.Status == "ok" {
+		pv.DecodeTPS = store.ResultTPS(*res, true)
+		pv.PrefillTPS = store.ResultTPS(*res, false)
+	}
+	writeJSON(w, http.StatusOK, pv)
 }
 
 // pathID extracts and parses the {id} path parameter.

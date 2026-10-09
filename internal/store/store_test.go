@@ -1,7 +1,9 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -552,4 +554,180 @@ func splitLines(s string) []string {
 		out = append(out, s[start:])
 	}
 	return out
+}
+
+// Throughput metrics (task 10-09): decode/prefill derivation with guards,
+// independent denominators, series bucket fields, and null serialization.
+func okWithUsage(started int64, ttft, total int64, prompt, completion *int) Result {
+	return Result{
+		ProviderID: 1, Revision: 1, BaseURL: "http://x/v1", Model: "m",
+		Source: SourceScheduled, StartedAt: started, FinishedAt: started + total,
+		Success: true, TTFTMs: &ttft, TotalMs: total, Status: statusOK,
+		PromptTokens: prompt, CompletionTokens: completion,
+	}
+}
+
+func TestAvgThroughputCalculation(t *testing.T) {
+	s, _ := newTestStore(t)
+	if _, err := s.AddProvider(Provider{Name: "p", BaseURL: "http://x/v1", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	p64, c32 := 64, 32
+	// A4 fixture: ttft=200ms total=1200ms prompt=64 completion=32
+	//   decode = (32-1)/(1.0s) = 31.0 ; prefill = 64/0.2 = 320.0
+	if _, err := s.AppendResult(okWithUsage(now-1000, 200, 1200, &p64, &c32)); err != nil {
+		t.Fatal(err)
+	}
+	// completion=1: a 1-token response decodes nothing, decode excluded
+	// (completion<2 guard), prefill still counts.
+	c1 := 1
+	if _, err := s.AppendResult(okWithUsage(now-500, 300, 1200, &p64, &c1)); err != nil {
+		t.Fatal(err)
+	}
+	// ttft==total: zero-length decode span excludes decode (span<=0 guard);
+	// prefill is independent and still counts.
+	if _, err := s.AppendResult(okWithUsage(now-400, 800, 800, &p64, &c32)); err != nil {
+		t.Fatal(err)
+	}
+	// No usage at all: contributes to neither denominator.
+	if _, err := s.AppendResult(okWithUsage(now-250, 100, 900, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+
+	dec, pre := s.AvgThroughput(1, 1, time.Hour)
+	if dec == nil || math.Abs(*dec-31.0) > 1.5 {
+		t.Fatalf("avg decode = %v, want ~31.0 (only sample 1 qualifies)", dec)
+	}
+	if pre == nil {
+		t.Fatal("avg prefill = nil, want a value")
+	}
+	// prefill = (320 + 213.33 + 80)/3 ≈ 204.4
+	if math.Abs(*pre-204.44) > 2 {
+		t.Fatalf("avg prefill = %v, want ~204.4", *pre)
+	}
+}
+
+func TestAvgThroughputEmpty(t *testing.T) {
+	s, _ := newTestStore(t)
+	if _, err := s.AddProvider(Provider{Name: "p", BaseURL: "http://x/v1", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	dec, pre := s.AvgThroughput(1, 1, time.Hour)
+	if dec != nil || pre != nil {
+		t.Fatalf("want nils without usage evidence, got %v %v", dec, pre)
+	}
+}
+
+func TestResultTokensSerializeNull(t *testing.T) {
+	s, _ := newTestStore(t)
+	if _, err := s.AddProvider(Provider{Name: "p", BaseURL: "http://x/v1", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	if _, err := s.AppendResult(okWithUsage(now, 100, 500, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(s.dir, "results", "1.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"prompt_tokens":null`)) {
+		t.Fatalf("prompt_tokens must serialize as null, line: %s", data)
+	}
+}
+
+func TestSeriesBucketThroughput(t *testing.T) {
+	s, _ := newTestStore(t)
+	if _, err := s.AddProvider(Provider{Name: "p", BaseURL: "http://x/v1", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	p64, c32 := 64, 32
+	if _, err := s.AppendResult(okWithUsage(now-1000, 200, 1200, &p64, &c32)); err != nil {
+		t.Fatal(err)
+	}
+	buckets := s.Series(1, 1, time.Hour)
+	var found bool
+	for _, b := range buckets {
+		if b.Samples > 0 {
+			found = true
+			if b.AvgDecodeTPS == nil || math.Abs(*b.AvgDecodeTPS-31.0) > 1.5 {
+				t.Fatalf("bucket decode = %v, want ~31.0", b.AvgDecodeTPS)
+			}
+			if b.AvgPrefillTPS == nil {
+				t.Fatal("bucket prefill = nil, want a value")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no bucket with samples found")
+	}
+}
+
+// A6: data written before task 10-09 (config.json and JSONL without the
+// include_usage / token fields) loads with the new fields defaulting to
+// false/nil, and legacy ok samples simply stay out of the throughput
+// denominators.
+func TestLegacyDataWithoutUsageFieldsLoads(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "results"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyConfig := `{
+  "version": 1,
+  "next_id": 2,
+  "max_results_per_provider": 20000,
+  "providers": [
+    {"id": 1, "name": "old", "base_url": "http://x/v1", "api_key": "", "model": "m",
+     "revision": 1, "prompt": "ping", "max_tokens": 128, "timeout_sec": 60,
+     "ttft_timeout_ms": 10000, "ttft_slow_ms": 2000, "interval_sec": 300,
+     "enabled": true, "created_at": 1700000000000}
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(legacyConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	legacyLine, err := json.Marshal(map[string]any{
+		"seq": 1, "provider_id": 1, "revision": 1, "base_url": "http://x/v1",
+		"model": "m", "source": "scheduled", "started_at": now - 1000,
+		"finished_at": now - 1000 + 1200, "success": true,
+		"ttft_ms": 200, "total_ms": 1200, "status": "ok", "http_status": 200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "results", "1.jsonl"),
+		append(legacyLine, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New(dir)
+	if err != nil {
+		t.Fatalf("load legacy data: %v", err)
+	}
+	p, ok := s.GetProvider(1)
+	if !ok {
+		t.Fatal("legacy provider missing")
+	}
+	if p.IncludeUsage {
+		t.Fatal("include_usage must default to false for legacy config")
+	}
+	rs := s.QueryResults(1, RevisionAll, SourceAll, 24*time.Hour, 10, nil, nil)
+	if len(rs) != 1 {
+		t.Fatalf("legacy records = %d, want 1", len(rs))
+	}
+	if rs[0].PromptTokens != nil || rs[0].CompletionTokens != nil {
+		t.Fatalf("legacy tokens = %v/%v, want nil/nil", rs[0].PromptTokens, rs[0].CompletionTokens)
+	}
+	// Availability stats unaffected; throughput averages stay nil (the legacy
+	// ok sample carries no usage evidence, so it enters neither denominator).
+	if st := s.Stats(1, 1, time.Hour); st.Samples != 1 || st.OK != 1 {
+		t.Fatalf("legacy stats = %+v, want 1 ok sample", st)
+	}
+	dec, pre := s.AvgThroughput(1, 1, time.Hour)
+	if dec != nil || pre != nil {
+		t.Fatalf("legacy throughput = %v/%v, want nil/nil", dec, pre)
+	}
 }

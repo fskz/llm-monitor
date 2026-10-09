@@ -51,6 +51,10 @@ type Target struct {
 	BaseURL, APIKey, Model, Prompt string
 	MaxTokens                      int
 	TTFTTimeoutMs, TotalTimeoutMs  int
+	// IncludeUsage adds stream_options.include_usage to the request so the
+	// endpoint reports token counts in a final usage event (opt-in per
+	// provider; off keeps the request byte-identical to the MVP baseline).
+	IncludeUsage bool
 }
 
 // Outcome is the classified result of one probe.
@@ -66,6 +70,11 @@ type Outcome struct {
 	HTTPStatus    *int
 	ErrDetail     string
 	OutputPreview string
+	// Token counts reported by the endpoint's usage event; nil when absent
+	// (or when usage arrives after [DONE], which the read loop does not
+	// consume). Observational only — never part of classification.
+	PromptTokens     *int
+	CompletionTokens *int
 }
 
 // Do performs one streaming probe.
@@ -127,6 +136,10 @@ type scanState struct {
 	errDetail      string
 	preview        strings.Builder
 	previewRunes   int
+	// Usage evidence captured from any parsed event; purely observational,
+	// never consulted by classification. Last event with usage wins.
+	promptTokens     *int
+	completionTokens *int
 }
 
 func (r *run) execute(client *http.Client) Outcome {
@@ -156,10 +169,15 @@ func (r *run) execute(client *http.Client) Outcome {
 }
 
 type chatRequest struct {
-	Model     string        `json:"model"`
-	Messages  []chatMessage `json:"messages"`
-	MaxTokens int           `json:"max_tokens"`
-	Stream    bool          `json:"stream"`
+	Model         string         `json:"model"`
+	Messages      []chatMessage  `json:"messages"`
+	MaxTokens     int            `json:"max_tokens"`
+	Stream        bool           `json:"stream"`
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type chatMessage struct {
@@ -176,6 +194,12 @@ func (r *run) buildRequest() (*http.Request, error) {
 		Messages:  []chatMessage{{Role: "user", Content: r.target.Prompt}},
 		MaxTokens: r.target.MaxTokens,
 		Stream:    true,
+		StreamOptions: func() *streamOptions {
+			if !r.target.IncludeUsage {
+				return nil
+			}
+			return &streamOptions{IncludeUsage: true}
+		}(),
 	})
 	if err != nil {
 		return nil, err
@@ -379,5 +403,7 @@ func (r *run) finish(o Outcome) Outcome {
 		o.ErrDetail = ""
 	}
 	o.OutputPreview = truncateRunes(replaceKey(r.st.preview.String(), r.target.APIKey), maxPreviewRunes)
+	o.PromptTokens = r.st.promptTokens
+	o.CompletionTokens = r.st.completionTokens
 	return o
 }
