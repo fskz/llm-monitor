@@ -1060,3 +1060,153 @@ func TestIncludeUsageRoundTripAndThroughputFields(t *testing.T) {
 		t.Fatalf("include_usage must reset to false on full-replace PUT: %s", raw2)
 	}
 }
+
+// HTML report export (task 10-09): headers/filename, parameter errors,
+// truncation cap, XSS escaping, key non-leakage, no external resource URLs,
+// and stats parity with /api/stats on the same fixture.
+func TestReportExport(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	p := addProviderDirect(t, s.st, func(pp *store.Provider) {
+		pp.Name = "<script>alert(1)</script>" // hostile name for A4
+		pp.APIKey = "sk-report-secret-123456"
+	})
+	now := time.Now().UnixMilli()
+	// A4/A6 fixture: error text containing the key, mixed statuses.
+	for i := 0; i < 3; i++ {
+		r := scheduledResult(p, "ok", now-int64(i)*60_000, i64(500))
+		prompt, completion := 64, 32
+		r.PromptTokens, r.CompletionTokens = &prompt, &completion
+		appendDirect(t, s.st, r)
+	}
+	appendDirect(t, s.st, scheduledResult(p, "http_error", now-4*60_000, nil))
+	last := scheduledResult(p, "timeout_ttft", now-5*60_000, nil)
+	last.Error = "Bearer sk-report-secret-123456 rejected"
+	appendDirect(t, s.st, last)
+
+	res, body := serve(t, s, "GET", "/api/report?provider="+strconv.Itoa(p.ID)+"&window=24h", "", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("report = %d", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	cd := res.Header.Get("Content-Disposition")
+	if !strings.HasPrefix(cd, "attachment; filename=") || !strings.HasSuffix(cd, ".html\"") {
+		t.Fatalf("Content-Disposition = %q", cd)
+	}
+	// A2: key sections present.
+	for _, want := range []string{"监控报告", "监测状态", "成功率趋势", "探测明细", "错误 / 说明", "<svg"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("report missing %q", want)
+		}
+	}
+	// A4: hostile name escaped (the tag must not survive; the text may),
+	// key never appears.
+	if strings.Contains(body, "<script>alert(1)</script>") {
+		t.Fatalf("hostile provider name not escaped")
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Fatalf("escaped name text missing — name should render as literal text")
+	}
+	if strings.Contains(body, "sk-report-secret-123456") {
+		t.Fatalf("API key leaked into report")
+	}
+	// A5: no external resource references (only the SVG/CSS we emit).
+	for _, pat := range []string{"src=\"http", "href=\"http", "url(http", "@import"} {
+		if strings.Contains(body, pat) {
+			t.Fatalf("external resource reference %q in report", pat)
+		}
+	}
+	// A6: stats parity with /api/stats on the same window.
+	_, statsRaw := serve(t, s, "GET", "/api/stats?provider="+strconv.Itoa(p.ID)+"&window=24h", "", nil)
+	var sv struct {
+		Samples int `json:"samples"`
+	}
+	if err := json.Unmarshal([]byte(statsRaw), &sv); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "样本数") {
+		t.Fatal("stats card missing")
+	}
+	if sv.Samples != 5 {
+		t.Fatalf("stats samples = %d, want 5", sv.Samples)
+	}
+
+	// A1: parameter errors behave like /api/stats.
+	res2, _ := serve(t, s, "GET", "/api/report?provider=&window=24h", "", nil)
+	if res2.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing provider = %d, want 400", res2.StatusCode)
+	}
+	res3, _ := serve(t, s, "GET", "/api/report?provider=99999", "", nil)
+	if res3.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown provider = %d, want 404", res3.StatusCode)
+	}
+	res4, _ := serve(t, s, "GET", "/api/report?provider="+strconv.Itoa(p.ID)+"&source=bogus", "", nil)
+	if res4.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad source = %d, want 400", res4.StatusCode)
+	}
+}
+
+// A3: more rows than the cap get truncated with an explicit note.
+func TestReportTruncation(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	p := addProviderDirect(t, s.st, nil)
+	now := time.Now().UnixMilli()
+	for i := 0; i < 250; i++ {
+		appendDirect(t, s.st, scheduledResult(p, "ok", now-int64(i)*60_000, i64(100)))
+	}
+	res, body := serve(t, s, "GET", "/api/report?provider="+strconv.Itoa(p.ID)+"&window=7d", "", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("report = %d", res.StatusCode)
+	}
+	if !strings.Contains(body, "已截断至 200 条") {
+		t.Fatalf("truncation note missing")
+	}
+	if got := strings.Count(body, "<tr class="); got > 205 {
+		t.Fatalf("row count leak: %d tr elements", got)
+	}
+}
+
+// A1/R1: filename follows the llm-monitor-<slug>-<window>-<yyyymmdd-hhmmss>
+// contract; CJK-only names fall back to provider-<id>; revision/report
+// metadata render; per-field token dash keeps null ≠ 0 (§9.2); latency chart
+// degrades to the "暂无成功样本" placeholder when no ok bucket exists.
+func TestReportFilenameAndNullSemantics(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	// CJK-only name → slug folds to empty → provider-<id> fallback.
+	p := addProviderDirect(t, s.st, func(pp *store.Provider) { pp.Name = "生产接口监控" })
+	now := time.Now().UnixMilli()
+	// One failure with only prompt_tokens observed: completion stays null and
+	// must render as a dash, never 0.
+	r := scheduledResult(p, "http_error", now, nil)
+	prompt := 64
+	r.PromptTokens = &prompt
+	appendDirect(t, s.st, r)
+
+	res, body := serve(t, s, "GET", "/api/report?provider="+strconv.Itoa(p.ID)+"&revision=all&window=1h&source=scheduled", "", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("report = %d", res.StatusCode)
+	}
+	cd := res.Header.Get("Content-Disposition")
+	wantPrefix := fmt.Sprintf("attachment; filename=\"llm-monitor-provider-%d-1h-", p.ID)
+	if !strings.HasPrefix(cd, wantPrefix) || !strings.HasSuffix(cd, ".html\"") {
+		t.Fatalf("Content-Disposition = %q, want prefix %q", cd, wantPrefix)
+	}
+	if len(cd) != len(wantPrefix)+len("20060102-150405.html\"") {
+		t.Fatalf("filename timestamp not yyyymmdd-hhmmss: %q", cd)
+	}
+	if !strings.Contains(body, "64 / —") {
+		t.Fatalf("null completion_tokens must render as dash, got: %s", body[:min(len(body), 200)])
+	}
+	if strings.Contains(body, "64 / 0") {
+		t.Fatalf("null completion_tokens rendered as 0")
+	}
+	if !strings.Contains(body, "目标版本 全部版本") && !strings.Contains(body, "全部版本") {
+		t.Fatalf("revision=all filter label missing")
+	}
+	// No ok samples in the window → latency placeholder (fixture has one
+	// scheduled http_error, so the success chart itself is not empty here).
+	if !strings.Contains(body, "暂无成功样本") {
+		t.Fatalf("latency chart placeholder missing for zero ok samples")
+	}
+}

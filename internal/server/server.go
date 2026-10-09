@@ -5,6 +5,7 @@ package server
 
 import (
 	"encoding/json"
+	"html/template"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -46,17 +47,19 @@ type ProviderMutator interface {
 // Server wires the store, the engine and the embedded panel assets into one
 // http.Handler.
 type Server struct {
-	st    *store.Store
-	eng   EngineAPI
-	mut   ProviderMutator
-	webFS fs.FS
-	port  int
+	st         *store.Store
+	eng        EngineAPI
+	mut        ProviderMutator
+	webFS      fs.FS
+	port       int
+	reportTmpl *template.Template
 }
 
 // New builds the server. eng and mut may be nil (no engine attached);
 // webFS is the embedded panel filesystem (web.FS()).
 func New(st *store.Store, eng EngineAPI, mut ProviderMutator, webFS fs.FS, port int) *Server {
-	return &Server{st: st, eng: eng, mut: mut, webFS: webFS, port: port}
+	tmpl := template.Must(template.New("report").Funcs(reportTmplFuncs).Parse(reportTmplSrc))
+	return &Server{st: st, eng: eng, mut: mut, webFS: webFS, port: port, reportTmpl: tmpl}
 }
 
 // Handler returns the complete routing tree, ready for http.Serve.
@@ -70,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/series", s.handleSeries)
 	mux.HandleFunc("GET /api/results", s.handleResults)
+	mux.HandleFunc("GET /api/report", s.handleReport)
 	mux.Handle("/", http.FileServerFS(s.webFS))
 	return mux
 }

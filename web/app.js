@@ -475,6 +475,17 @@ function init() {
   $("form-provider").addEventListener("submit", saveProvider);
   $("dlg-cancel").addEventListener("click", () => $("dlg-provider").close());
   $("btn-probe").addEventListener("click", manualProbe);
+  $("btn-export").addEventListener("click", () => {
+    if (currentId == null) return;
+    const qs = `provider=${currentId}&revision=${encodeURIComponent(revisionParam())}` +
+               `&window=${curWindow}&source=${curSource}`;
+    // GET + Content-Disposition triggers a download; no fetch needed.
+    const a = document.createElement("a");
+    a.href = `/api/report?${qs}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
   $("sel-window").addEventListener("change", (e) => { curWindow = e.target.value; resetPaging(); refreshDetail(); });
   $("sel-revision").addEventListener("change", (e) => { curRevision = e.target.value; resetPaging(); refreshDetail(); });
   $("sel-source").addEventListener("change", (e) => { curSource = e.target.value; resetPaging(); refreshDetail(); });
