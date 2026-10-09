@@ -35,3 +35,9 @@
 ### Status
 
 [OK] **Completed**
+
+## 2026-10-09 · task 10-09-usage-throughput-metrics — usage 吞吐指标完成
+- 每对象 include_usage 开关：stream_options 按需携带；usage 捕获独立于分类（usage-after-[DONE] 不消费）；Result 增 tokens 字段（null 语义）。
+- 吞吐口径单一实现（store decodeTPS/prefillTPS + ResultTPS）：decode 剔除 completion<2/零时长，prefill 标注近似含排队；手动响应与统计共用。
+- check 修复 7 项（flaky engine 测试、REQUIREMENTS §9.2 与新字段矛盾、误导注释、series 覆盖缺口、A6 旧数据直接覆盖）；冒烟 decode=57.5/prefill=238.8 与公式一致。
+- 教训：pkill -f 模式会匹配自身命令行（exit 144）——冒烟脚本改用 PID 管理（scripts/smoke_usage.py）。

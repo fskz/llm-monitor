@@ -1,0 +1,3 @@
+{"file": "docs/REQUIREMENTS.md", "reason": "验收依据：修订后条款 + §12.1 新增第 9 项"}
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "检查跨层契约同步（状态字符串四处同步规则同样适用于新 JSON 字段）与 Wrong vs Correct 反模式"}
+{"file": ".trellis/tasks/10-09-usage-throughput-metrics/prd.md", "reason": "A1-A8 验收清单逐条核对"}

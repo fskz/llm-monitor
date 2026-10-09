@@ -55,6 +55,19 @@ protocol_error | empty | aborted | cancelled`
   otherwise EOF → `aborted` even with partial text.
 - Error/redaction: API key replaced with `***`, ErrDetail ≤512 runes,
   OutputPreview ≤200 runes, HTTP error body ≤4KB.
+- **Usage capture is observational, never judgmental**: `streamEvent.Usage`
+  is recorded into `Outcome.PromptTokens/CompletionTokens` before any
+  classification branch and the classification state machine never reads it.
+  The read loop stops at `[DONE]` — usage arriving after `[DONE]` is not
+  consumed (classification semantics outrank evidence gathering). Capture is
+  switch-independent: an endpoint volunteering usage is recorded even with
+  `include_usage=false` (the switch only controls what we ASK for).
+- Throughput derivation lives in ONE place (`internal/store`):
+  `decodeTPS`/`prefillTPS` (+ public `ResultTPS`) define the formula and
+  guards — decode excludes `completion<2` and zero decode span, prefill
+  requires `prompt>0 && ttft>0`, each metric has an independent denominator.
+  The manual-probe response and the stored-sample averages both go through
+  it; never re-implement the formula elsewhere.
 
 ## JSONL store discipline
 

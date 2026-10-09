@@ -1,0 +1,4 @@
+{"file": "docs/REQUIREMENTS.md", "reason": "需求基线（本任务修订其 include_usage 条款与 §9 字段表）"}
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "跨层状态字符串/JSON 契约与 JSONL 纪律——新增字段必须遵守（四处同步、null 语义、Seq 纪律）"}
+{"file": ".trellis/tasks/10-08-mvp-llm-monitor/research/probe-judgment-rules.md", "reason": "SSE 解析与 usage 事件跳过口径——捕获逻辑不得改变分类分支"}
+{"file": ".trellis/tasks/10-09-usage-throughput-metrics/design.md", "reason": "本任务技术设计：锚点文件:行号、除零守卫、usage-after-[DONE] 边界"}
