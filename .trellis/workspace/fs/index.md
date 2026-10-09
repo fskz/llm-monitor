@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
-- **Last Active**: 2026-10-08
+- **Total Sessions**: 2
+- **Last Active**: 2026-10-09
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~37 | Active |
+| `journal-1.md` | ~67 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-10-09 | 探测指标增加 usage 精确吞吐统计 | `5298015`, `1278546`, `a0fe4ec` | `dev` |
 | 1 | 2026-10-08 | 实现 LLM 接口可用性监测工具完整 MVP | `1da8ba5`, `cac3ede`, `d16acb5` | `dev` |
 <!-- @@@/auto:session-history -->
 

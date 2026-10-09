@@ -41,3 +41,27 @@
 - 吞吐口径单一实现（store decodeTPS/prefillTPS + ResultTPS）：decode 剔除 completion<2/零时长，prefill 标注近似含排队；手动响应与统计共用。
 - check 修复 7 项（flaky engine 测试、REQUIREMENTS §9.2 与新字段矛盾、误导注释、series 覆盖缺口、A6 旧数据直接覆盖）；冒烟 decode=57.5/prefill=238.8 与公式一致。
 - 教训：pkill -f 模式会匹配自身命令行（exit 144）——冒烟脚本改用 PID 管理（scripts/smoke_usage.py）。
+
+
+## Session 2: 探测指标增加 usage 精确吞吐统计
+<!-- trellis-session: v=2 fp=89f82cf226d59b0a -->
+
+**Date**: 2026-10-09
+**Task**: 探测指标增加 usage 精确吞吐统计
+**Branch**: `dev`
+
+### Summary
+
+每对象 include_usage 开关（默认关，请求体字节级不变）：stream_options 按需携带，usage 捕获独立于分类判定；Result 增 prompt/completion_tokens（null 语义，旧数据兼容）；decode/prefill 吞吐口径单一实现于 store（decode 剔除 completion<2 与零时长样本，prefill 标注含排队近似，独立分母）；统计/趋势/手动响应/面板全链路展示。check 修复 7 项；冒烟 decode=57.5/prefill=238.8 与公式一致；全量 -race 绿。REQUIREMENTS.md 受控修订（§1.4/§3.1/§3.2/§9/§12.1-9/决策 #11）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5298015` | feat: add opt-in usage-based throughput metrics (decode/prefill tps) |
+| `1278546` | docs: revise requirements for opt-in usage throughput metrics |
+| `a0fe4ec` | chore(trellis): task artifacts, spec and journal for usage metrics |
+
+### Status
+
+[OK] **Completed**
