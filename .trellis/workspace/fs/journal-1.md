@@ -71,3 +71,27 @@
 - 唯一 template.HTML 为 SVG 数字几何；Key 三层防线（掩码/probe 脱敏/渲染时 scrubSecret）；中文对象名 slug 空回退 provider-<id>。
 - check 修复 3 项：延迟图零样本占位、Token 列 null 误显 0、文件名补 PRD 前缀与秒级时间戳；状态中文表 Go/js 双表同步入规范。
 - 冒烟：7 项断言全过（无 Key/无外链/svg/统计卡/近似标注/明细/徽章）。
+
+
+## Session 3: 导出 HTML 监控报告
+<!-- trellis-session: v=2 fp=788bafac1f4376e2 -->
+
+**Date**: 2026-10-09
+**Task**: 导出 HTML 监控报告
+**Branch**: `dev`
+
+### Summary
+
+GET /api/report 导出单对象自包含 HTML 报告（服务端 html/template 渲染：徽章/三率/吞吐/双 SVG 趋势/明细 ≤200 含失败原因，attachment 下载，source 缺省 all）。Key 三层防线；唯一 template.HTML 为数字几何 SVG；状态中文表 Go/js 双表同步入规范。check 修复 3 项（空态占位/null≠0/文件名补前缀）；冒烟 7 项断言全过；全量 -race 绿。REQUIREMENTS §4.5/§10/§13/决策 #12 修订。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9a1a94a` | feat: export single-provider self-contained HTML monitoring report |
+| `195c231` | docs: revise requirements for HTML report export |
+| `bf9513e` | chore(trellis): task artifacts, spec and journal for report export |
+
+### Status
+
+[OK] **Completed**
