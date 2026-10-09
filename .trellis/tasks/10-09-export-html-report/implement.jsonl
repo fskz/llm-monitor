@@ -1,0 +1,3 @@
+{"file": "docs/REQUIREMENTS.md", "reason": "需求基线（本任务修订 §4.5/§10/§13/§14）"}
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "跨层契约与转义纪律；状态字符串四处同步规则将新增 Go 侧 statusText"}
+{"file": ".trellis/tasks/10-09-export-html-report/design.md", "reason": "本任务设计：数据组装、SVG funcs、slug 规则、测试映射"}

@@ -65,3 +65,9 @@
 ### Status
 
 [OK] **Completed**
+
+## 2026-10-09 · task 10-09-export-html-report — HTML 报告导出完成
+- GET /api/report（attachment，参数同 stats+source 缺省 all）：服务端 html/template 渲染单对象自包含报告（徽章/统计/吞吐/双 SVG 趋势/明细 ≤200）。
+- 唯一 template.HTML 为 SVG 数字几何；Key 三层防线（掩码/probe 脱敏/渲染时 scrubSecret）；中文对象名 slug 空回退 provider-<id>。
+- check 修复 3 项：延迟图零样本占位、Token 列 null 误显 0、文件名补 PRD 前缀与秒级时间戳；状态中文表 Go/js 双表同步入规范。
+- 冒烟：7 项断言全过（无 Key/无外链/svg/统计卡/近似标注/明细/徽章）。

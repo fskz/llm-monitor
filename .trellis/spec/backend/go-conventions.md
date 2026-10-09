@@ -129,6 +129,22 @@ protocol_error | empty | aborted | cancelled`
 - API JSON shapes are the contract with `internal/server/views.go` — change
   both sides together.
 
+## HTML report export (internal/server/report*.go, report.tmpl)
+
+- The status label tables exist in TWO Go/JS pairs: `web/app.js`
+  STATUS_TEXT/STATUS_META and `internal/server/report.go`
+  reportStatusText/reportMonitorText. Adding or renaming a status means
+  updating all of them.
+- The report is server-rendered via `html/template`; the ONLY
+  `template.HTML` values are the chart SVG strings built in
+  `report_chart.go` from strconv-formatted numbers and fixed literals —
+  never route user/target text through them.
+- Key non-leakage has three layers: providerView masking, probe-time
+  `replaceKey`, and render-time `scrubSecret` in report rows (records
+  appended by other paths may bypass probe sanitization).
+- null vs 0 discipline applies to display too: unobserved token counts
+  render "—", never "0" (§9.2).
+
 ## Wrong vs Correct (selections from real bugs)
 
 ### Wrong

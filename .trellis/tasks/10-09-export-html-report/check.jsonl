@@ -1,0 +1,3 @@
+{"file": "docs/REQUIREMENTS.md", "reason": "验收依据：修订后 §4.5/§10 与决策 #12"}
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "检查转义纪律与新同步点（statusText Go/js 双表）"}
+{"file": ".trellis/tasks/10-09-export-html-report/prd.md", "reason": "A1-A8 逐条核对"}
