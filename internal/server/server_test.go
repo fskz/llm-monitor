@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1206,5 +1207,56 @@ func TestCloneProvider(t *testing.T) {
 	// 404 on a missing source.
 	if res, _ := serve(t, s, "POST", "/api/providers/99999/clone", "", nil); res.StatusCode != 404 {
 		t.Fatalf("clone of missing provider = %d, want 404", res.StatusCode)
+	}
+}
+
+// Settings API (10-10-settings-pack): round-trip, per-field 400s with the
+// Chinese messages, same-origin guard on PUT.
+func TestSettingsAPI(t *testing.T) {
+	s, _, _ := newTestServer(t)
+
+	res, body := serve(t, s, "GET", "/api/settings", "", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("get = %d: %s", res.StatusCode, body)
+	}
+	var sv SettingsView
+	if err := json.Unmarshal([]byte(body), &sv); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if sv.StreakAlert != 2 || sv.Defaults.MaxTokens != 128 || sv.ReportDir != "" {
+		t.Fatalf("defaults = %+v", sv)
+	}
+
+	// Round-trip a custom section.
+	dir := t.TempDir()
+	put := fmt.Sprintf(`{"defaults":{"max_tokens":256,"interval_sec":120,"timeout_sec":90,"ttft_timeout_ms":20000,"ttft_slow_ms":4000,"enabled":true,"include_usage":true},"streak_alert":5,"report_dir":%q}`, filepath.Join(dir, "rep"))
+	res, body = serve(t, s, "PUT", "/api/settings", put, nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("put = %d: %s", res.StatusCode, body)
+	}
+	res, body = serve(t, s, "GET", "/api/settings", "", nil)
+	if !strings.Contains(body, `"streak_alert":5`) || !strings.Contains(body, `"max_tokens":256`) {
+		t.Fatalf("round-trip body = %s", body)
+	}
+
+	// Validation 400s.
+	for _, bad := range []string{
+		`{"streak_alert":1,"defaults":{"max_tokens":128,"timeout_sec":60,"ttft_timeout_ms":15000,"ttft_slow_ms":3000}}`,
+		`{"streak_alert":3,"defaults":{"max_tokens":0,"timeout_sec":60,"ttft_timeout_ms":15000,"ttft_slow_ms":3000}}`,
+		`{"streak_alert":3,"defaults":{"max_tokens":128,"timeout_sec":60,"ttft_timeout_ms":15000,"ttft_slow_ms":30000}}`,
+	} {
+		if res, body = serve(t, s, "PUT", "/api/settings", bad, nil); res.StatusCode != 400 {
+			t.Fatalf("bad settings = %d (%s), want 400", res.StatusCode, body)
+		}
+	}
+	// Unwritable report dir 400s.
+	bad := `{"streak_alert":3,"defaults":{"max_tokens":128,"timeout_sec":60,"ttft_timeout_ms":15000,"ttft_slow_ms":3000},"report_dir":"/proc/nope/deep"}`
+	if res, body = serve(t, s, "PUT", "/api/settings", bad, nil); res.StatusCode != 400 {
+		t.Fatalf("unwritable dir = %d (%s), want 400", res.StatusCode, body)
+	}
+
+	// Cross-origin PUT rejected.
+	if res, _ := serve(t, s, "PUT", "/api/settings", put, map[string]string{"Origin": "http://evil.example:80"}); res.StatusCode != 403 {
+		t.Fatalf("cross-origin put = %d, want 403", res.StatusCode)
 	}
 }

@@ -107,6 +107,9 @@ type configFile struct {
 	NextID                int        `json:"next_id"`
 	MaxResultsPerProvider int        `json:"max_results_per_provider"`
 	Providers             []Provider `json:"providers"`
+	// Settings is the tool-level section (10-10-settings-pack); absent in
+	// older files → GetSettings falls back to built-in defaults.
+	Settings Settings `json:"settings,omitempty"`
 }
 
 // providerResults is the per-provider in-memory index plus the JSONL file

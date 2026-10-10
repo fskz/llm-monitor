@@ -162,3 +162,9 @@ dialog h2 { margin: 0 0 14px; font-size: 16px; }
 textarea { resize: vertical; }
 .form-error { color: var(--fail); font-size: 13px; margin: 8px 0 0; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
+/* 全局设置对话框 (10-10-settings-pack) */
+#dlg-settings fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 10px 0; padding: 10px 14px; }
+#dlg-settings legend { font-size: 13px; color: var(--muted); padding: 0 6px; }
+/* 连败高亮：卡片红色描边（角标由 statusBadge 渲染） */
+.card.alerting { border-color: var(--fail); }

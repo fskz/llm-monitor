@@ -31,4 +31,5 @@ const (
 	keyDelete    = 'd' // 阶段 4b
 	keyExport    = 'r' // 阶段 4b
 	keyWeb       = 'w' // 阶段 4b
+	keySettings  = ',' // 10-10-settings-pack
 )

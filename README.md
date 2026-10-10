@@ -124,6 +124,16 @@ reports/             TUI 导出的 HTML 报告
 | `enabled` | 是否启用定时探测 | true |
 | `include_usage` | 请求 usage 统计(吞吐指标需要) | false |
 
+## 全局设置
+
+面板「设置」按钮或 TUI 按 `,`:工具级配置存于 config.json `settings` 段——
+
+- **新建对象默认值**:仅预填新建表单(max_tokens/间隔/超时/慢阈值/启用/usage),不批量修改已有对象
+- **连败提醒阈值**(默认 2,≥2):连续失败达标时概览卡红色描边 + 「连败 N」角标,仅本地视觉提示
+- **报告导出目录**(默认空 = `<数据目录>/reports/`):TUI `r` 导出的落盘位置
+
+API:`GET/PUT /api/settings`;坏值回退内置默认,不阻塞启动。
+
 ## 判定与统计口径(简)
 
 - 结束判据:流式 `[DONE]`,或非空 `finish_reason` 后正常 EOF;否则按中断处理

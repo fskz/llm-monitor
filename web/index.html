@@ -11,6 +11,7 @@
   <h1>LLM 接口可用性监测</h1>
   <div class="header-actions">
     <span id="storage-warn" class="warn hidden">存储异常</span>
+    <button id="btn-settings" class="ghost">设置</button>
     <button id="btn-add" class="primary">+ 添加监测对象</button>
   </div>
 </header>
@@ -134,6 +135,36 @@
     <div class="dlg-actions">
       <button value="cancel" class="ghost">取消</button>
       <button value="ok" class="danger">删除</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 全局设置（10-10-settings-pack）：仅影响新建表单预填与本地提示，不改已有对象 -->
+<dialog id="dlg-settings">
+  <form id="form-settings">
+    <h2>全局设置</h2>
+    <div id="settings-error" class="form-error hidden"></div>
+    <fieldset>
+      <legend>新建对象默认值（仅预填新建表单）</legend>
+      <label>max_tokens<input id="s-maxtokens" type="number" min="1" required></label>
+      <label>探测间隔（分钟，0=仅手动）<input id="s-interval" type="number" min="0" required></label>
+      <label>总超时（秒）<input id="s-timeout" type="number" min="1" required></label>
+      <label>首内容超时（秒）<input id="s-ttft" type="number" min="0.1" step="0.1" required></label>
+      <label>慢阈值（秒）<input id="s-slow" type="number" min="0.1" step="0.1" required></label>
+      <label class="check"><input id="s-enabled" type="checkbox"> 默认启用定时探测</label>
+      <label class="check"><input id="s-usage" type="checkbox"> 默认请求 usage 统计</label>
+    </fieldset>
+    <fieldset>
+      <legend>提醒</legend>
+      <label>连败提醒阈值（连续失败次数，≥2）<input id="s-streak" type="number" min="2" required></label>
+    </fieldset>
+    <fieldset>
+      <legend>报告导出（TUI）</legend>
+      <label>导出目录（留空 = 数据目录/reports）<input id="s-reportdir" type="text" placeholder="留空使用默认"></label>
+    </fieldset>
+    <div class="dlg-actions">
+      <button type="button" id="settings-cancel" class="ghost">取消</button>
+      <button type="submit" class="primary">保存</button>
     </div>
   </form>
 </dialog>

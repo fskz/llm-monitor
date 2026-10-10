@@ -43,6 +43,8 @@ func New(st *store.Store, eng EngineAPI, mut ProviderMutator, webFS fs.FS, port 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/providers", s.handleListProviders)
+	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /api/settings", s.sameOrigin(s.handlePutSettings))
 	mux.HandleFunc("POST /api/providers", s.sameOrigin(s.handleAddProvider))
 	mux.HandleFunc("POST /api/providers/{id}/clone", s.sameOrigin(s.handleCloneProvider))
 	mux.HandleFunc("PUT /api/providers/{id}", s.sameOrigin(s.handleUpdateProvider))

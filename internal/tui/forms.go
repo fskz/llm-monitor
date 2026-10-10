@@ -58,14 +58,13 @@ type formDialog struct {
 func openForm(app *tview.Application, deps Deps, editID int, onDone func()) *formDialog {
 	d := &formDialog{app: app, deps: deps, editID: editID, onDone: onDone}
 
-	f := view.ProviderForm{
-		Prompt:        view.DefaultPrompt,
-		MaxTokens:     128,
-		TimeoutSec:    60,
-		IntervalSec:   300,
-		TTFTTimeoutMs: 15000,
-		TTFTSlowMs:    3000,
-		Enabled:       true,
+	// New-provider defaults come from the tool settings (10-10-settings-pack);
+	// editing prefills the object itself.
+	f := view.ProviderForm{Prompt: view.DefaultPrompt, Enabled: true}
+	if d := deps.Store.GetSettings().Defaults; true {
+		f.MaxTokens, f.IntervalSec = d.MaxTokens, d.IntervalSec
+		f.TimeoutSec, f.TTFTTimeoutMs, f.TTFTSlowMs = d.TimeoutSec, d.TTFTTimeoutMs, d.TTFTSlowMs
+		f.Enabled, f.IncludeUsage = d.Enabled, d.IncludeUsage
 	}
 	apiKey := ""
 	title := "新建监测对象"

@@ -27,7 +27,11 @@ func (u *ui) exportReport(p store.Provider) (string, error) {
 	if u.detail != nil { // full UI carries the live filters; bare ui (tests) defaults
 		filters = u.detail.filters
 	}
-	dir := u.deps.Store.Dir() + string(filepath.Separator) + "reports"
+	// Report dir: settings override, else <data>/reports (R5).
+	dir := u.deps.Store.GetSettings().ReportDir
+	if dir == "" {
+		dir = u.deps.Store.Dir() + string(filepath.Separator) + "reports"
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("创建报告目录失败：%w", err)
 	}

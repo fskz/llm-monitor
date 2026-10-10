@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "config.json 原子写纪律、校验中文消息、sameOrigin 契约;settings 段为增量变更须遵守"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "设置贯穿 store→server→web/tui 四层"}

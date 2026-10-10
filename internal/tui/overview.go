@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/rivo/tview"
+	"strconv"
 
 	"llm-monitor/internal/store"
 	"llm-monitor/internal/view"
@@ -21,6 +22,15 @@ type overviewPane struct {
 	selected int
 	// onChange fires with the newly selected provider id.
 	onChange func(id int)
+}
+
+// streakThreshold is the 连败 badge threshold from the tool settings
+// (default 2 when unset/corrupt).
+func (o *overviewPane) streakThreshold() int {
+	if n := o.st.GetSettings().StreakAlert; n >= 2 {
+		return n
+	}
+	return 2
 }
 
 func newOverviewPane(st *store.Store, eng view.EngineStatus, onChange func(int)) *overviewPane {
@@ -62,6 +72,11 @@ func (o *overviewPane) refresh() {
 		secondary := ""
 		if v.Probing {
 			secondary = "探测中…"
+		}
+		// Streak badge at the settings threshold (10-10-settings-pack R4):
+		// "真挂了" next to the single-result status.
+		if v.StreakFail >= o.streakThreshold() {
+			item += " [red::b]连败 " + strconv.Itoa(v.StreakFail) + "[-]"
 		}
 		o.list.AddItem(item, secondary, 0, nil)
 		o.ids = append(o.ids, p.ID)

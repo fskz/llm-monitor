@@ -4,6 +4,7 @@ let currentId = null;        // selected provider id
 let curRevision = "";        // "" = current revision; "all" or number string
 let curWindow = "24h";
 let curSource = "scheduled";
+let appSettings = null;   // GET /api/settings cache (10-10-settings-pack)
 let pageCursor = null;       // cursor used to fetch the current page (null = first)
 let nextCursor = null;       // next_cursor from the latest response (null = no more)
 let prevCursors = [];        // stack of cursors-to-use for going back
@@ -85,9 +86,10 @@ function statusBadge(p) {
   if (p.status === "ok" && p.slow_ttft) html += `<span class="slow-dot" title="可用，但首内容较慢"></span>`;
   if (p.probing) html += `<span class="muted"> · 正在探测</span>`;
   html += `</span>`;
-  // Consecutive-failure badge (metrics-pack): ≥2 makes "真挂了" visible
-  // next to the single-result status.
-  if ((p.streak_fail || 0) >= 2) html += ` <span class="badge fail" title="连续失败 ${p.streak_fail} 次">连败 ${p.streak_fail}</span>`;
+  // Consecutive-failure badge: threshold from settings (default 2) makes
+  // "真挂了" visible next to the single-result status.
+  const threshold = (appSettings && appSettings.streak_alert) || 2;
+  if ((p.streak_fail || 0) >= threshold) html += ` <span class="badge fail" title="连续失败 ${p.streak_fail} 次">连败 ${p.streak_fail}</span>`;
   return html;
 }
 
@@ -99,6 +101,7 @@ function statusBadge(p) {
 async function loadOverview() {
   try {
     providers = await api("/api/providers");
+    if (!appSettings) appSettings = await api("/api/settings"); // once; the dialog refreshes it
     $("storage-warn").classList.toggle("hidden", !providers.some((p) => p.storage_error));
     renderOverview();
   } catch (e) {
@@ -122,7 +125,9 @@ function renderOverview() {
     const lastTxt = last
       ? `${esc(STATUS_TEXT[last.status] || last.status)}${esc(reason)} · ${fmtTime(last.finished_at)}`
       : "尚无定时探测";
-    return `<div class="card" data-id="${p.id}">
+    const threshold = (appSettings && appSettings.streak_alert) || 2;
+    const alerting = (p.streak_fail || 0) >= threshold ? " alerting" : "";
+    return `<div class="card${alerting}" data-id="${p.id}">
       <div class="card-top">
         <div><h3>${esc(p.name)}</h3><div class="model">${esc(p.model)}</div></div>
         ${statusBadge(p)}
@@ -369,13 +374,16 @@ function openProviderDialog(id) {
   if (p && p.api_key_set) $("f-clearkey").parentElement.classList.remove("hidden");
   $("f-model").value = p ? p.model : "";
   $("f-prompt").value = p ? p.prompt : defaultPrompt();
-  $("f-maxtokens").value = p ? p.max_tokens : 128;
-  $("f-interval").value = p ? (p.interval_sec ? p.interval_sec / 60 : 0) : 5;
-  $("f-ttft").value = p ? p.ttft_timeout_ms / 1000 : 10;
-  $("f-timeout").value = p ? p.timeout_sec : 60;
-  $("f-slow").value = p ? p.ttft_slow_ms / 1000 : 2;
-  $("f-enabled").checked = p ? p.enabled : true;
-  $("f-usage").checked = p ? !!p.include_usage : false;
+  // New-provider defaults come from the tool settings when loaded
+  // (10-10-settings-pack); editing prefills the object itself.
+  const d = (appSettings && appSettings.defaults) || { max_tokens: 128, interval_sec: 300, timeout_sec: 60, ttft_timeout_ms: 15000, ttft_slow_ms: 3000, enabled: true, include_usage: false };
+  $("f-maxtokens").value = p ? p.max_tokens : d.max_tokens;
+  $("f-interval").value = p ? (p.interval_sec ? p.interval_sec / 60 : 0) : (d.interval_sec ? d.interval_sec / 60 : 0);
+  $("f-ttft").value = p ? p.ttft_timeout_ms / 1000 : d.ttft_timeout_ms / 1000;
+  $("f-timeout").value = p ? p.timeout_sec : d.timeout_sec;
+  $("f-slow").value = p ? p.ttft_slow_ms / 1000 : d.ttft_slow_ms / 1000;
+  $("f-enabled").checked = p ? p.enabled : d.enabled;
+  $("f-usage").checked = p ? !!p.include_usage : !!d.include_usage;
   dlg.showModal();
 }
 
@@ -434,6 +442,52 @@ function showFormError(msg) {
   const el = $("form-error");
   el.textContent = msg;
   el.classList.remove("hidden");
+}
+
+/* ---------- settings dialog (10-10-settings-pack) ---------- */
+
+function openSettingsDialog() {
+  const dlg = $("dlg-settings");
+  $("settings-error").classList.add("hidden");
+  api("/api/settings").then((s) => {
+    appSettings = s;
+    $("s-maxtokens").value = s.defaults.max_tokens;
+    $("s-interval").value = s.defaults.interval_sec ? s.defaults.interval_sec / 60 : 0;
+    $("s-ttft").value = s.defaults.ttft_timeout_ms / 1000;
+    $("s-timeout").value = s.defaults.timeout_sec;
+    $("s-slow").value = s.defaults.ttft_slow_ms / 1000;
+    $("s-enabled").checked = s.defaults.enabled;
+    $("s-usage").checked = !!s.defaults.include_usage;
+    $("s-streak").value = s.streak_alert;
+    $("s-reportdir").value = s.report_dir || "";
+    dlg.showModal();
+  }).catch((e) => alert("读取设置失败：" + e.message));
+}
+
+async function saveSettings(ev) {
+  ev.preventDefault();
+  const body = {
+    defaults: {
+      max_tokens: Number($("s-maxtokens").value),
+      interval_sec: Math.round(Number($("s-interval").value) * 60),
+      timeout_sec: Number($("s-timeout").value),
+      ttft_timeout_ms: Math.round(Number($("s-ttft").value) * 1000),
+      ttft_slow_ms: Math.round(Number($("s-slow").value) * 1000),
+      enabled: $("s-enabled").checked,
+      include_usage: $("s-usage").checked,
+    },
+    streak_alert: Number($("s-streak").value),
+    report_dir: $("s-reportdir").value.trim(),
+  };
+  try {
+    appSettings = await api("/api/settings", { method: "PUT", body: JSON.stringify(body) });
+    $("dlg-settings").close();
+    await loadOverview(); // thresholds/badges re-render immediately
+  } catch (e) {
+    const el = $("settings-error");
+    el.textContent = e.message;
+    el.classList.remove("hidden");
+  }
 }
 
 // cloneProvider duplicates a provider server-side (the API key is copied
@@ -514,6 +568,9 @@ function closeDetail() {
 
 function init() {
   $("btn-add").addEventListener("click", () => openProviderDialog(null));
+  $("btn-settings").addEventListener("click", openSettingsDialog);
+  $("settings-cancel").addEventListener("click", () => $("dlg-settings").close());
+  $("form-settings").addEventListener("submit", saveSettings);
   $("btn-back").addEventListener("click", closeDetail);
   $("form-provider").addEventListener("submit", saveProvider);
   $("dlg-cancel").addEventListener("click", () => $("dlg-provider").close());
