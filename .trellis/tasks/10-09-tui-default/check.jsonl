@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "check 时核对依赖方向、状态映射单一定义、安全契约未被破坏"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查 view 下沉后 server/tui/web 三消费方数据流一致"}

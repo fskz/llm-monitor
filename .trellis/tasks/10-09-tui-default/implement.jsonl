@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "包依赖方向、状态字符串跨层契约、server 安全契约——TUI 改造必须遵守且本任务要修订其中零依赖与同步点条款"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "视图下沉 view 包涉及跨层数据流重构,review 时按此清单检查"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "报告渲染管线解耦、findListener/openBrowser 复用迁移,防重复实现"}
