@@ -137,9 +137,13 @@ func (d *detailPane) summary(v view.ProviderView) string {
 }
 
 func (d *detailPane) statsBlock(p store.Provider, v view.ProviderView) string {
-	stats := view.StatsViewFrom(d.st.Stats(p.ID, d.filters.revisionOf(p), d.filters.window))
-	stats.AvgTTFTMs, stats.AvgTotalMs = d.st.AvgOnOK(p.ID, d.filters.revisionOf(p), d.filters.window)
-	stats.AvgDecodeTPS, stats.AvgPrefillTPS = d.st.AvgThroughput(p.ID, d.filters.revisionOf(p), d.filters.window)
+	// Stats follow the source filter (task 10-10): the detail pane shows
+	// what the user filtered for; the monitor badge in the header stays on
+	// scheduled probes (§7.2) via view.ViewOf.
+	src := d.filters.source
+	stats := view.StatsViewFrom(d.st.Stats(p.ID, d.filters.revisionOf(p), d.filters.window, src))
+	stats.AvgTTFTMs, stats.AvgTotalMs = d.st.AvgOnOK(p.ID, d.filters.revisionOf(p), d.filters.window, src)
+	stats.AvgDecodeTPS, stats.AvgPrefillTPS = d.st.AvgThroughput(p.ID, d.filters.revisionOf(p), d.filters.window, src)
 
 	if stats.Samples == 0 {
 		return fmt.Sprintf("[gray]统计（%s）：暂无样本[white]\n", d.filters.windowLabel())
@@ -161,7 +165,7 @@ func revisionLabel(f filterState, v view.ProviderView) string {
 }
 
 func (d *detailPane) charts(p store.Provider) string {
-	buckets := d.st.Series(p.ID, d.filters.revisionOf(p), d.filters.window)
+	buckets := d.st.Series(p.ID, d.filters.revisionOf(p), d.filters.window, d.filters.source)
 	ok, lat := sparkline(buckets, false), sparkline(buckets, true)
 	return fmt.Sprintf("成功率  [blue]%s[-]\n耗时    [blue]%s[-]\n", ok, lat)
 }

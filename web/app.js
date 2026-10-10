@@ -167,11 +167,12 @@ async function refreshDetail() {
   if (currentId == null) return;
   const rev = revisionParam();
   const qs = `provider=${currentId}&revision=${encodeURIComponent(rev)}&window=${curWindow}`;
+  const src = `&source=${curSource}`; // stats/series follow the source filter (10-10)
   const [providersAll, stats, series, results] = await Promise.all([
     api("/api/providers"),
-    api(`/api/stats?${qs}`),
-    api(`/api/series?${qs}`),
-    api(`/api/results?${qs}&source=${curSource}&limit=50${pageCursor ? `&before=${encodeURIComponent(pageCursor)}` : ""}`),
+    api(`/api/stats?${qs}${src}`),
+    api(`/api/series?${qs}${src}`),
+    api(`/api/results?${qs}${src}&limit=50${pageCursor ? `&before=${encodeURIComponent(pageCursor)}` : ""}`),
   ]);
   providers = providersAll;
   const p = providers.find((x) => x.id === currentId);

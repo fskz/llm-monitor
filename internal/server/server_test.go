@@ -581,13 +581,15 @@ func TestProbeEndpoint(t *testing.T) {
 	if pv.Result.OutputPreview != "pong" {
 		t.Errorf("probe preview = %q, want pong", pv.Result.OutputPreview)
 	}
-	// Manual result must NOT enter the default (scheduled) stats.
-	res, body = serve(t, s, "GET", fmt.Sprintf("/api/stats?provider=%d", id), "", nil)
+	// Manual result must NOT enter the scheduled stats (the schedule
+	// health view); the endpoint default became source=all in
+	// 10-10-stats-by-source, so the scheduled view is explicit here.
+	res, body = serve(t, s, "GET", fmt.Sprintf("/api/stats?provider=%d&source=scheduled", id), "", nil)
 	if res.StatusCode != 200 {
 		t.Fatalf("stats = %d (%s)", res.StatusCode, body)
 	}
 	if !strings.Contains(body, `"samples":0`) {
-		t.Errorf("stats after manual probe = %s, want samples 0", body)
+		t.Errorf("scheduled stats after manual probe = %s, want samples 0", body)
 	}
 	// But it is queryable with source=manual.
 	res, body = serve(t, s, "GET",
@@ -769,7 +771,7 @@ func TestStatsAcceptanceRatios(t *testing.T) {
 	m.Source = store.SourceManual
 	appendDirect(t, s.st, m)
 
-	res, body := serve(t, s, "GET", fmt.Sprintf("/api/stats?provider=%d", p.ID), "", nil)
+	res, body := serve(t, s, "GET", fmt.Sprintf("/api/stats?provider=%d&source=scheduled", p.ID), "", nil)
 	if res.StatusCode != 200 {
 		t.Fatalf("stats = %d: %s", res.StatusCode, body)
 	}
@@ -783,6 +785,42 @@ func TestStatsAcceptanceRatios(t *testing.T) {
 	assertPct(t, "ok", sv.OKPct, 50)
 	assertPct(t, "timeout", sv.TimeoutPct, 33.33)
 	assertPct(t, "error", sv.ErrorPct, 16.67)
+
+	// Source filtering (task 10-10-stats-by-source): manual selects only
+	// the manual ok sample; the default (no parameter) is all, where the
+	// manual sample joins the denominator (7/4); cancelled never counts.
+	fetch := func(q string) view.StatsView {
+		t.Helper()
+		res, body := serve(t, s, "GET", fmt.Sprintf("/api/stats?provider=%d&source=%s", p.ID, q), "", nil)
+		if res.StatusCode != 200 {
+			t.Fatalf("stats source=%s = %d: %s", q, res.StatusCode, body)
+		}
+		var v view.StatsView
+		if err := json.Unmarshal([]byte(body), &v); err != nil {
+			t.Fatalf("decode stats source=%s: %v", q, err)
+		}
+		return v
+	}
+	if m := fetch("manual"); m.Samples != 1 || m.OK != 1 {
+		t.Fatalf("manual counts = %+v, want samples 1 ok 1", m)
+	}
+	if a := fetch("all"); a.Samples != 7 || a.OK != 4 {
+		t.Fatalf("all counts = %+v, want samples 7 ok 4", a)
+	}
+	res, body = serve(t, s, "GET", fmt.Sprintf("/api/stats?provider=%d", p.ID), "", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("default stats = %d: %s", res.StatusCode, body)
+	}
+	var dv view.StatsView
+	if err := json.Unmarshal([]byte(body), &dv); err != nil {
+		t.Fatalf("decode default stats: %v", err)
+	}
+	if dv.Samples != 7 || dv.OK != 4 {
+		t.Fatalf("default (all) counts = %+v, want samples 7 ok 4", dv)
+	}
+	if res, body := serve(t, s, "GET", fmt.Sprintf("/api/stats?provider=%d&source=bogus", p.ID), "", nil); res.StatusCode != 400 {
+		t.Fatalf("bogus source = %d (%s), want 400", res.StatusCode, body)
+	}
 
 	// avg over ok samples only: (900+900+900)/3.
 	if sv.AvgTTFTMs == nil || *sv.AvgTTFTMs != 900 {

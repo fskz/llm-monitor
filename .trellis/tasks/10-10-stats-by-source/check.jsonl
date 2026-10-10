@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "核对统计口径修改未破坏既有契约(cancelled 剔除、无样本 null)"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层数据流一致性检查"}

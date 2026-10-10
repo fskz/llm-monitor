@@ -277,3 +277,37 @@ func containsPlain(s, sub string) bool {
 		return false
 	})()
 }
+
+// TUI detail stats follow the source filter (task 10-10 A5, unit half):
+// with a mixed history the manual filter's stats block counts only the
+// manual samples and renders them.
+func TestDetailStatsFollowSource(t *testing.T) {
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	ids := seedProviders(t, st, 1)
+	seedResults(t, st, ids[0], 3) // scheduled ok rows
+	// one manual row
+	now := time.Now().UnixMilli()
+	if _, err := st.AppendResult(store.Result{
+		ProviderID: ids[0], Revision: 1, BaseURL: "https://api.example.com", Model: "m",
+		Source: store.SourceManual, StartedAt: now - 1000, FinishedAt: now - 500,
+		Success: true, Status: "ok", TotalMs: 500,
+	}); err != nil {
+		t.Fatalf("AppendResult: %v", err)
+	}
+	p, _ := st.GetProvider(ids[0])
+
+	d := newDetailPane(st, nil)
+	d.filters.source = store.SourceManual
+	txt := d.renderText(p)
+	if !containsPlain(txt, "样本 1") {
+		t.Fatalf("manual-filtered stats = missing 样本 1:\n%s", txt)
+	}
+	d.filters.source = store.SourceAll
+	txt = d.renderText(p)
+	if !containsPlain(txt, "样本 4") {
+		t.Fatalf("all-filtered stats = missing 样本 4:\n%s", txt)
+	}
+}

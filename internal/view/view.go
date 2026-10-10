@@ -160,8 +160,10 @@ func ViewOf(st *store.Store, eng EngineStatus, p store.Provider) ProviderView {
 	}
 
 	v.Status, v.SlowTTFT = monitorStatus(p, v.LastProbe)
-	// Default overview window: 24h, current revision only (design.md §5).
-	v.Stats = StatsViewFrom(st.Stats(p.ID, p.Revision, 24*time.Hour))
+	// Default overview window: 24h, current revision, scheduled probes —
+	// the overview card is schedule health and does NOT follow the detail
+	// view's source filter (task 10-10-stats-by-source).
+	v.Stats = StatsViewFrom(st.Stats(p.ID, p.Revision, 24*time.Hour, store.SourceScheduled))
 	return v
 }
 

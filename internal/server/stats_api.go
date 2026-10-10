@@ -78,14 +78,36 @@ func (s *Server) queryProvider(w http.ResponseWriter, r *http.Request) (store.Pr
 	return p, rev, window, true
 }
 
+// querySource parses the source filter of /api/stats and /api/series.
+// Unlike /api/results (which predates it and defaults to scheduled for
+// panel-compat), the stats endpoints default to all: a direct API caller
+// asking for statistics without a filter wants the full picture
+// (task 10-10-stats-by-source decision).
+func querySource(w http.ResponseWriter, r *http.Request) (string, bool) {
+	source := r.URL.Query().Get("source")
+	if source == "" {
+		return store.SourceAll, true
+	}
+	switch source {
+	case store.SourceScheduled, store.SourceManual, store.SourceAll:
+		return source, true
+	}
+	writeError(w, http.StatusBadRequest, "source 仅支持 scheduled / manual / all")
+	return "", false
+}
+
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	p, rev, window, ok := s.queryProvider(w, r)
 	if !ok {
 		return
 	}
-	sv := view.StatsViewFrom(s.st.Stats(p.ID, rev, window))
-	sv.AvgTTFTMs, sv.AvgTotalMs = s.st.AvgOnOK(p.ID, rev, window)
-	sv.AvgDecodeTPS, sv.AvgPrefillTPS = s.st.AvgThroughput(p.ID, rev, window)
+	source, ok := querySource(w, r)
+	if !ok {
+		return
+	}
+	sv := view.StatsViewFrom(s.st.Stats(p.ID, rev, window, source))
+	sv.AvgTTFTMs, sv.AvgTotalMs = s.st.AvgOnOK(p.ID, rev, window, source)
+	sv.AvgDecodeTPS, sv.AvgPrefillTPS = s.st.AvgThroughput(p.ID, rev, window, source)
 	writeJSON(w, http.StatusOK, sv)
 }
 
@@ -94,7 +116,11 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	buckets := s.st.Series(p.ID, rev, window)
+	source, ok := querySource(w, r)
+	if !ok {
+		return
+	}
+	buckets := s.st.Series(p.ID, rev, window, source)
 	out := make([]view.BucketView, len(buckets))
 	for i, b := range buckets {
 		out[i] = view.BucketViewFrom(b)

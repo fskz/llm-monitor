@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "包依赖方向与状态契约;统计口径规则(分母/cancelled 剔除)在此记录,修改需同步"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "source 参数贯穿 store→server→web/tui/view 五层,review 按此清单检查"}

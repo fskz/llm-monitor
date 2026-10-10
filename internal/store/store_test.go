@@ -235,7 +235,7 @@ func TestStatsRatios(t *testing.T) {
 	manual.Source = SourceManual
 	appendResult(t, s, manual)
 
-	st := s.Stats(p.ID, p.Revision, 24*time.Hour)
+	st := s.Stats(p.ID, p.Revision, 24*time.Hour, SourceScheduled)
 	if st.Samples != 6 || st.OK != 3 || st.TimeoutTTFT != 1 || st.TimeoutTotal != 1 || st.ErrorCount != 1 {
 		t.Fatalf("counts = %+v", st)
 	}
@@ -243,11 +243,24 @@ func TestStatsRatios(t *testing.T) {
 	assertPct(t, "timeout", st.TimeoutPct, 33.333333)
 	assertPct(t, "error", st.ErrorPct, 16.666667)
 
+	// Source filtering (task 10-10-stats-by-source A1/A2): manual selects
+	// only the manual ok sample; all merges both (cancelled never counts).
+	if m := s.Stats(p.ID, p.Revision, 24*time.Hour, SourceManual); m.Samples != 1 || m.OK != 1 {
+		t.Fatalf("manual counts = %+v, want samples 1 ok 1", m)
+	}
+	if a := s.Stats(p.ID, p.Revision, 24*time.Hour, SourceAll); a.Samples != 7 || a.OK != 4 {
+		t.Fatalf("all counts = %+v, want samples 7 ok 4", a)
+	}
+
 	// No samples → nil percentages, never 0 or 100.
 	fresh := mustAddProvider(t, s, "fresh")
-	empty := s.Stats(fresh.ID, fresh.Revision, 24*time.Hour)
+	empty := s.Stats(fresh.ID, fresh.Revision, 24*time.Hour, SourceScheduled)
 	if empty.Samples != 0 || empty.OKPct != nil || empty.TimeoutPct != nil || empty.ErrorPct != nil {
 		t.Fatalf("empty stats = %+v, want nil pcts", empty)
+	}
+	// A manual-only view of a scheduled-only history is equally empty.
+	if me := s.Stats(fresh.ID, fresh.Revision, 24*time.Hour, SourceManual); me.Samples != 0 || me.OKPct != nil {
+		t.Fatalf("empty manual stats = %+v, want nil pcts", me)
 	}
 }
 
@@ -258,11 +271,11 @@ func TestStatsWindowFilter(t *testing.T) {
 	appendResult(t, s, mkResult(p, statusOK, nowMs-10*60_000))  // 10 min ago
 	appendResult(t, s, mkResult(p, statusOK, nowMs-3*3600_000)) // 3 h ago
 
-	st := s.Stats(p.ID, p.Revision, time.Hour)
+	st := s.Stats(p.ID, p.Revision, time.Hour, SourceScheduled)
 	if st.Samples != 1 || st.OK != 1 {
 		t.Fatalf("1h window stats = %+v, want 1 sample", st)
 	}
-	stAll := s.Stats(p.ID, p.Revision, 24*time.Hour)
+	stAll := s.Stats(p.ID, p.Revision, 24*time.Hour, SourceScheduled)
 	if stAll.Samples != 2 {
 		t.Fatalf("24h window stats = %+v, want 2 samples", stAll)
 	}
@@ -282,11 +295,11 @@ func TestStatsRevisionFilter(t *testing.T) {
 	r3.Revision = 2
 	appendResult(t, s, r3)
 
-	st2 := s.Stats(p.ID, 2, 24*time.Hour)
+	st2 := s.Stats(p.ID, 2, 24*time.Hour, SourceScheduled)
 	if st2.Samples != 2 || st2.OK != 1 || st2.TimeoutTTFT != 1 {
 		t.Fatalf("revision-2 stats = %+v", st2)
 	}
-	stAll := s.Stats(p.ID, RevisionAll, 24*time.Hour)
+	stAll := s.Stats(p.ID, RevisionAll, 24*time.Hour, SourceScheduled)
 	if stAll.Samples != 3 || stAll.OK != 2 {
 		t.Fatalf("all-revision stats = %+v", stAll)
 	}
@@ -367,7 +380,7 @@ func TestSeriesBuckets(t *testing.T) {
 	appendResult(t, s, okB)
 	appendResult(t, s, mkResult(p, statusTimeoutTotal, newestBucketEnd.Add(-45*time.Second).UnixMilli())) // fails: excluded from averages
 
-	buckets := s.Series(p.ID, p.Revision, time.Hour)
+	buckets := s.Series(p.ID, p.Revision, time.Hour, SourceScheduled)
 	if len(buckets) != 12 {
 		t.Fatalf("buckets = %d, want 12", len(buckets))
 	}
@@ -399,11 +412,11 @@ func TestSeriesBuckets(t *testing.T) {
 	oldRev := mkResult(p, statusOK, newestBucketEnd.Add(-10*time.Minute).UnixMilli())
 	oldRev.Revision = 2
 	appendResult(t, s, oldRev)
-	rev1 := s.Series(p.ID, 1, time.Hour)
+	rev1 := s.Series(p.ID, 1, time.Hour, SourceScheduled)
 	if got := rev1[len(rev1)-2].Samples + rev1[len(rev1)-1].Samples; got != 3 {
 		t.Fatalf("revision-1 series samples = %d, want 3", got)
 	}
-	revAll := s.Series(p.ID, RevisionAll, time.Hour)
+	revAll := s.Series(p.ID, RevisionAll, time.Hour, SourceScheduled)
 	total := 0
 	for _, b := range revAll {
 		total += b.Samples
@@ -483,7 +496,7 @@ func TestConcurrentAppendAndQuery(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 20; i++ {
-			_ = s.Stats(p1.ID, RevisionAll, 24*time.Hour)
+			_ = s.Stats(p1.ID, RevisionAll, 24*time.Hour, SourceScheduled)
 			_ = s.QueryResults(p2.ID, RevisionAll, SourceAll, 24*time.Hour, 10, nil, nil)
 		}
 	}()
@@ -595,7 +608,7 @@ func TestAvgThroughputCalculation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dec, pre := s.AvgThroughput(1, 1, time.Hour)
+	dec, pre := s.AvgThroughput(1, 1, time.Hour, SourceScheduled)
 	if dec == nil || math.Abs(*dec-31.0) > 1.5 {
 		t.Fatalf("avg decode = %v, want ~31.0 (only sample 1 qualifies)", dec)
 	}
@@ -613,7 +626,7 @@ func TestAvgThroughputEmpty(t *testing.T) {
 	if _, err := s.AddProvider(Provider{Name: "p", BaseURL: "http://x/v1", Model: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	dec, pre := s.AvgThroughput(1, 1, time.Hour)
+	dec, pre := s.AvgThroughput(1, 1, time.Hour, SourceScheduled)
 	if dec != nil || pre != nil {
 		t.Fatalf("want nils without usage evidence, got %v %v", dec, pre)
 	}
@@ -647,7 +660,7 @@ func TestSeriesBucketThroughput(t *testing.T) {
 	if _, err := s.AppendResult(okWithUsage(now-1000, 200, 1200, &p64, &c32)); err != nil {
 		t.Fatal(err)
 	}
-	buckets := s.Series(1, 1, time.Hour)
+	buckets := s.Series(1, 1, time.Hour, SourceScheduled)
 	var found bool
 	for _, b := range buckets {
 		if b.Samples > 0 {
@@ -723,10 +736,10 @@ func TestLegacyDataWithoutUsageFieldsLoads(t *testing.T) {
 	}
 	// Availability stats unaffected; throughput averages stay nil (the legacy
 	// ok sample carries no usage evidence, so it enters neither denominator).
-	if st := s.Stats(1, 1, time.Hour); st.Samples != 1 || st.OK != 1 {
+	if st := s.Stats(1, 1, time.Hour, SourceScheduled); st.Samples != 1 || st.OK != 1 {
 		t.Fatalf("legacy stats = %+v, want 1 ok sample", st)
 	}
-	dec, pre := s.AvgThroughput(1, 1, time.Hour)
+	dec, pre := s.AvgThroughput(1, 1, time.Hour, SourceScheduled)
 	if dec != nil || pre != nil {
 		t.Fatalf("legacy throughput = %v/%v, want nil/nil", dec, pre)
 	}

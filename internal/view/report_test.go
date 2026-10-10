@@ -91,9 +91,10 @@ func TestRenderReportContent(t *testing.T) {
 			t.Fatalf("external resource reference %q in report", pat)
 		}
 	}
-	// Stats parity with the store on the same window (the denominators the
-	// panel uses, REQUIREMENTS §3.4).
-	got := st.Stats(p.ID, p.Revision, 24*time.Hour)
+	// Stats parity with the store on the same window and source (the
+	// report defaults to source=all; fixture rows are scheduled, so
+	// scheduled/all agree here).
+	got := st.Stats(p.ID, p.Revision, 24*time.Hour, store.SourceAll)
 	if got.Samples != 5 {
 		t.Fatalf("stats samples = %d, want 5", got.Samples)
 	}

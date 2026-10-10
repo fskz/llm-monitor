@@ -132,10 +132,12 @@ func RenderReport(w io.Writer, st *store.Store, eng EngineStatus, p store.Provid
 		})
 	}
 
-	stats := StatsViewFrom(st.Stats(p.ID, rev, window))
-	stats.AvgTTFTMs, stats.AvgTotalMs = st.AvgOnOK(p.ID, rev, window)
-	stats.AvgDecodeTPS, stats.AvgPrefillTPS = st.AvgThroughput(p.ID, rev, window)
-	buckets := st.Series(p.ID, rev, window)
+	// The report's stats follow the report's own source parameter
+	// (2026-10-10: previously always scheduled-only).
+	stats := StatsViewFrom(st.Stats(p.ID, rev, window, source))
+	stats.AvgTTFTMs, stats.AvgTotalMs = st.AvgOnOK(p.ID, rev, window, source)
+	stats.AvgDecodeTPS, stats.AvgPrefillTPS = st.AvgThroughput(p.ID, rev, window, source)
+	buckets := st.Series(p.ID, rev, window, source)
 
 	data := reportData{
 		GeneratedAt: time.Now().Format("2006-01-02 15:04:05"),

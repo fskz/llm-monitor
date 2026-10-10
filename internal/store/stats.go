@@ -117,7 +117,7 @@ func prefillTPS(r Result) (float64, bool) {
 // the window (scheduled, non-cancelled, revision-filtered) — failed-request
 // durations never enter response-time statistics (REQUIREMENTS.md §3.4).
 // Both results are nil when there is no ok sample.
-func (s *Store) AvgOnOK(providerID int, revision int, window time.Duration) (avgTTFT, avgTotal *int64) {
+func (s *Store) AvgOnOK(providerID int, revision int, window time.Duration, source string) (avgTTFT, avgTotal *int64) {
 	pr := s.resultsFor(providerID)
 	if pr == nil {
 		return nil, nil
@@ -131,7 +131,7 @@ func (s *Store) AvgOnOK(providerID int, revision int, window time.Duration) (avg
 		if r.Revision != revision && revision != RevisionAll {
 			continue
 		}
-		if !inWindow(r, minStartedAt) || r.Status != statusOK {
+		if !inWindow(r, minStartedAt, source) || r.Status != statusOK {
 			continue
 		}
 		okCount++
@@ -156,7 +156,7 @@ func (s *Store) AvgOnOK(providerID int, revision int, window time.Duration) (avg
 // samples in the window that carry usable usage evidence. Each metric has
 // its own denominator (a sample can qualify for one and not the other);
 // nil when no sample qualifies.
-func (s *Store) AvgThroughput(providerID int, revision int, window time.Duration) (avgDecode, avgPrefill *float64) {
+func (s *Store) AvgThroughput(providerID int, revision int, window time.Duration, source string) (avgDecode, avgPrefill *float64) {
 	pr := s.resultsFor(providerID)
 	if pr == nil {
 		return nil, nil
@@ -170,7 +170,7 @@ func (s *Store) AvgThroughput(providerID int, revision int, window time.Duration
 		if r.Revision != revision && revision != RevisionAll {
 			continue
 		}
-		if !inWindow(r, minStartedAt) || r.Status != statusOK {
+		if !inWindow(r, minStartedAt, source) || r.Status != statusOK {
 			continue
 		}
 		if d, ok := decodeTPS(r); ok {
@@ -194,10 +194,14 @@ func (s *Store) AvgThroughput(providerID int, revision int, window time.Duration
 }
 
 // inWindow reports whether a result belongs to the denominator or a
-// bucket: scheduled, not cancelled, started inside the window.
-func inWindow(r Result, minStartedAt int64) bool {
-	return r.Source == SourceScheduled && r.Status != statusCancelled &&
-		r.StartedAt >= minStartedAt
+// bucket: matching the requested source, not cancelled, started inside
+// the window. source is one of the /api source values
+// ("scheduled" / "manual" / "all"); "all" keeps both.
+func inWindow(r Result, minStartedAt int64, source string) bool {
+	if source != SourceAll && r.Source != source {
+		return false
+	}
+	return r.Status != statusCancelled && r.StartedAt >= minStartedAt
 }
 
 // classify counts one sample into the three categories.
@@ -234,10 +238,13 @@ func (pr *providerResults) snapshot() []Result {
 }
 
 // Stats computes the availability statistics of a provider over window,
-// filtered by started_at. revision selects a specific target revision;
+// filtered by started_at and source (scheduled / manual / all;
+// cancelled never counts, REQUIREMENTS.md §3.4 — 2026-10-10 revision:
+// the detail view's stats follow the source filter, the monitor status
+// stays on scheduled probes). revision selects a specific target revision;
 // RevisionAll covers every revision. Results are computed purely from the
 // in-memory index: a refresh never rescans the JSONL files.
-func (s *Store) Stats(providerID int, revision int, window time.Duration) Stats {
+func (s *Store) Stats(providerID int, revision int, window time.Duration, source string) Stats {
 	pr := s.resultsFor(providerID)
 	if pr == nil {
 		return Stats{}
@@ -250,7 +257,7 @@ func (s *Store) Stats(providerID int, revision int, window time.Duration) Stats 
 		if r.Revision != revision && revision != RevisionAll {
 			continue
 		}
-		if inWindow(r, minStartedAt) {
+		if inWindow(r, minStartedAt, source) {
 			st.classify(r)
 		}
 	}
@@ -285,11 +292,12 @@ func bucketLayout(window time.Duration) (start time.Time, width time.Duration, c
 	return end.Add(-time.Duration(count) * width), width, count
 }
 
-// Series aggregates the scheduled probes of a provider into time buckets
-// covering the window: success ratio, average TTFT and total duration of
-// ok samples, plus per-bucket sample counts. Empty buckets keep nil values
-// — no interpolation across gaps (REQUIREMENTS.md §3.4).
-func (s *Store) Series(providerID int, revision int, window time.Duration) []SeriesBucket {
+// Series aggregates the probes of a provider into time buckets covering
+// the window for the requested source: success ratio, average TTFT and
+// total duration of ok samples, plus per-bucket sample counts. Empty
+// buckets keep nil values — no interpolation across gaps
+// (REQUIREMENTS.md §3.4).
+func (s *Store) Series(providerID int, revision int, window time.Duration, source string) []SeriesBucket {
 	pr := s.resultsFor(providerID)
 	if pr == nil {
 		return nil
@@ -314,7 +322,7 @@ func (s *Store) Series(providerID int, revision int, window time.Duration) []Ser
 		if r.Revision != revision && revision != RevisionAll {
 			continue
 		}
-		if !inWindow(r, startMs) {
+		if !inWindow(r, startMs, source) {
 			continue
 		}
 		idx := int((r.StartedAt - startMs) / widthMs)
