@@ -1,4 +1,10 @@
-package server
+// SVG chart rendering for the HTML report. The geometry math mirrors the
+// panel's hand-drawn charts (web/app.js bucketPath/xLabels): equal-width
+// buckets, max-normalized y, gaps (nil buckets) break the polyline. All
+// coordinates are produced by strconv from numeric inputs only — the only
+// template.HTML injection point in the report, with no attacker-controlled
+// text passing through it.
+package view
 
 import (
 	"fmt"
@@ -9,13 +15,6 @@ import (
 
 	"llm-monitor/internal/store"
 )
-
-// SVG chart rendering for the HTML report. The geometry math mirrors the
-// panel's hand-drawn charts (web/app.js bucketPath/xLabels): equal-width
-// buckets, max-normalized y, gaps (nil buckets) break the polyline. All
-// coordinates are produced by strconv from numeric inputs only — the only
-// template.HTML injection point in the report, with no attacker-controlled
-// text passing through it.
 
 const chartW, chartH = 640, 160
 

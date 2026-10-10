@@ -7,105 +7,45 @@ import (
 	"strings"
 
 	"llm-monitor/internal/store"
+	"llm-monitor/internal/view"
 )
 
-// defaults for new providers (REQUIREMENTS.md §4.1). The panel pre-fills
-// its form with these; the server validates strictly instead of defaulting,
-// so a client that omits a field gets an explicit 400 rather than a silent
-// configuration it never asked for.
-const defaultPrompt = "请回复一个词：pong（这是一条连通性探测消息，请简短回复）"
-
-// providerPayload is the request body of POST/PUT. APIKey is *string so the
-// three PUT semantics can be told apart: absent (nil) = keep the stored
-// key, explicit "" or null = clear it, non-empty = replace
-// (REQUIREMENTS.md §5.4). POST ignores nil and "" (no key configured).
-type providerPayload struct {
-	Name          string  `json:"name"`
-	BaseURL       string  `json:"base_url"`
-	APIKey        *string `json:"api_key"`
-	Model         string  `json:"model"`
-	Prompt        string  `json:"prompt"`
-	MaxTokens     int     `json:"max_tokens"`
-	IntervalSec   int     `json:"interval_sec"`
-	TimeoutSec    int     `json:"timeout_sec"`
-	TTFTTimeoutMs int     `json:"ttft_timeout_ms"`
-	TTFTSlowMs    int     `json:"ttft_slow_ms"`
-	Enabled       bool    `json:"enabled"`
-	IncludeUsage  bool    `json:"include_usage"`
+// providerRequest is the POST/PUT wire body. It embeds the shared form
+// (view.ProviderForm, validated identically for the panel and the TUI) and
+// adds APIKey, which stays at the HTTP layer: *string so the three PUT
+// semantics can be told apart — absent (nil) = keep the stored key,
+// explicit "" or null = clear it, non-empty = replace (REQUIREMENTS.md
+// §5.4). POST ignores nil and "" (no key configured).
+type providerRequest struct {
+	view.ProviderForm
+	APIKey *string `json:"api_key"`
 }
 
-// validate mirrors the panel-side checks (web/app.js validateProvider):
-// the server re-validates so a broken or malicious client cannot store an
-// unsound configuration (defense in depth).
-func (c *providerPayload) validate() string {
-	switch {
-	case strings.TrimSpace(c.Name) == "":
-		return "名称不能为空"
-	case !strings.HasPrefix(c.BaseURL, "http://") && !strings.HasPrefix(c.BaseURL, "https://"):
-		return "Base URL 必须以 http:// 或 https:// 开头（API 前缀，如 https://example.com/v1）"
-	case strings.TrimSpace(c.Model) == "":
-		return "模型不能为空"
-	case c.MaxTokens <= 0:
-		return "max_tokens 必须大于 0"
-	case c.TimeoutSec <= 0:
-		return "总超时必须大于 0"
-	case c.IntervalSec != 0 && c.IntervalSec < 60:
-		return "探测间隔为 0（仅手动）或至少 1 分钟"
-	case !(c.TTFTSlowMs > 0 && c.TTFTSlowMs < c.TTFTTimeoutMs):
-		return "需要 0 < 慢阈值 < 首内容超时"
-	case c.TTFTTimeoutMs > c.TimeoutSec*1000:
-		return "首内容超时不能大于总超时"
-	}
-	return ""
-}
-
-// applyPromptDefault fills the probe prompt when the client submitted none.
-// Numeric fields are never defaulted: the panel sends complete forms and the
-// server validates them strictly (REQUIREMENTS.md §4.1), so an omitted
-// numeric field is reported as invalid instead of guessed.
-func (c *providerPayload) applyPromptDefault() {
-	if strings.TrimSpace(c.Prompt) == "" {
-		c.Prompt = defaultPrompt
-	}
-}
-
-// toProvider materializes the payload as a store.Provider. key carries the
-// resolved API key after PUT semantics (keep/clear/replace).
-func (c *providerPayload) toProvider(key string) store.Provider {
-	return store.Provider{
-		Name:          strings.TrimSpace(c.Name),
-		BaseURL:       strings.TrimRight(strings.TrimSpace(c.BaseURL), "/"),
-		APIKey:        key,
-		Model:         strings.TrimSpace(c.Model),
-		Prompt:        c.Prompt,
-		MaxTokens:     c.MaxTokens,
-		IntervalSec:   c.IntervalSec,
-		TimeoutSec:    c.TimeoutSec,
-		TTFTTimeoutMs: c.TTFTTimeoutMs,
-		TTFTSlowMs:    c.TTFTSlowMs,
-		Enabled:       c.Enabled,
-		IncludeUsage:  c.IncludeUsage,
-	}
+// form normalizes the decoded body and applies the prompt default before
+// validation (view.ProviderForm.Prepare).
+func (c *providerRequest) form() view.ProviderForm {
+	f := c.ProviderForm
+	f.Prepare()
+	return f
 }
 
 func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	providers := s.st.GetProviders()
-	out := make([]providerView, 0, len(providers))
+	out := make([]view.ProviderView, 0, len(providers))
 	for _, p := range providers {
-		out = append(out, s.viewOf(p))
+		out = append(out, view.ViewOf(s.st, s.eng, p))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleAddProvider(w http.ResponseWriter, r *http.Request) {
-	var c providerPayload
+	var c providerRequest
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
-	c.BaseURL = strings.TrimSpace(c.BaseURL)
-	c.applyPromptDefault()
-	if msg := c.validate(); msg != "" {
+	f := c.form()
+	if msg := f.Validate(); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -113,7 +53,7 @@ func (s *Server) handleAddProvider(w http.ResponseWriter, r *http.Request) {
 	if c.APIKey != nil {
 		key = strings.TrimSpace(*c.APIKey)
 	}
-	created, err := s.st.AddProvider(c.toProvider(key))
+	created, err := s.st.AddProvider(f.ToProvider(key))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "保存配置失败："+err.Error())
 		return
@@ -121,7 +61,7 @@ func (s *Server) handleAddProvider(w http.ResponseWriter, r *http.Request) {
 	if s.mut != nil {
 		s.mut.Add(created)
 	}
-	writeJSON(w, http.StatusCreated, s.viewOf(created))
+	writeJSON(w, http.StatusCreated, view.ViewOf(s.st, s.eng, created))
 }
 
 func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
@@ -134,14 +74,13 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "监测对象不存在")
 		return
 	}
-	var c providerPayload
+	var c providerRequest
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON")
 		return
 	}
-	c.BaseURL = strings.TrimSpace(c.BaseURL)
-	c.applyPromptDefault()
-	if msg := c.validate(); msg != "" {
+	f := c.form()
+	if msg := f.Validate(); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -152,7 +91,7 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	if c.APIKey != nil {
 		key = strings.TrimSpace(*c.APIKey)
 	}
-	updated := c.toProvider(key)
+	updated := f.ToProvider(key)
 	updated.ID = old.ID
 	updated.CreatedAt = old.CreatedAt
 	updated.Revision = old.Revision
@@ -169,7 +108,7 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	if s.mut != nil {
 		s.mut.Update(updated)
 	}
-	writeJSON(w, http.StatusOK, s.viewOf(updated))
+	writeJSON(w, http.StatusOK, view.ViewOf(s.st, s.eng, updated))
 }
 
 func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +161,7 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 	// slow mirrors the panel badge for manual probes (web/app.js
 	// manualProbe reads r.slow); throughput uses the same derivation as the
 	// stored-sample statistics.
-	pv := probeView{Result: res, Slow: slowTTFT(p, res)}
+	pv := view.ProbeView{Result: res, Slow: view.SlowTTFT(p, res)}
 	if res.Status == "ok" {
 		pv.DecodeTPS = store.ResultTPS(*res, true)
 		pv.PrefillTPS = store.ResultTPS(*res, false)
@@ -238,17 +177,4 @@ func pathID(w http.ResponseWriter, r *http.Request, param string) (int, bool) {
 		return 0, false
 	}
 	return id, true
-}
-
-// slowTTFT reports whether a successful probe exceeded the slow threshold;
-// it is a hint on top of "ok", never a separate status (REQUIREMENTS.md
-// §4.4).
-func slowTTFT(p store.Provider, res *store.Result) bool {
-	return res.Status == "ok" && res.TTFTMs != nil && *res.TTFTMs > int64(p.TTFTSlowMs)
-}
-
-// staleAfter is the freshness limit of the last scheduled probe:
-// 2×interval + timeout, in milliseconds (REQUIREMENTS.md §7.2-4).
-func staleAfter(p store.Provider) int64 {
-	return (int64(2*p.IntervalSec) + int64(p.TimeoutSec)) * 1000
 }

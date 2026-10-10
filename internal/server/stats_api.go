@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"llm-monitor/internal/store"
+	"llm-monitor/internal/view"
 )
 
 // API parameter limits (design.md §5).
@@ -16,54 +17,6 @@ const (
 	defaultResultLimit = 50
 	maxResultLimit     = 500
 )
-
-// statsView is the JSON shape of GET /api/stats and the embedded "stats"
-// field of GET /api/providers (web/app.js renderStats). Percentages are nil
-// when there is no sample — the panel shows "暂无样本" instead of 0%/100%
-// (REQUIREMENTS.md §3.4).
-type statsView struct {
-	Samples    int      `json:"samples"`
-	OK         int      `json:"ok"`
-	Timeout    int      `json:"timeout"`
-	ErrorCount int      `json:"error"`
-	OKPct      *float64 `json:"ok_pct"`
-	TimeoutPct *float64 `json:"timeout_pct"`
-	ErrorPct   *float64 `json:"error_pct"`
-	AvgTTFTMs  *int64   `json:"avg_ttft_ms"`
-	AvgTotalMs *int64   `json:"avg_total_ms"`
-	// Throughput averages over ok samples carrying usage evidence; nil when
-	// none qualify (panel shows "—", never 0).
-	AvgDecodeTPS  *float64 `json:"avg_decode_tps"`
-	AvgPrefillTPS *float64 `json:"avg_prefill_tps"`
-}
-
-// statsViewFrom maps a store.Stats plus the ok-sample averages onto the API
-// shape. Timeout merges the two timeout sub-categories; the panel keeps the
-// split visible through the results table.
-func statsViewFrom(st store.Stats) statsView {
-	return statsView{
-		Samples:    st.Samples,
-		OK:         st.OK,
-		Timeout:    st.TimeoutTTFT + st.TimeoutTotal,
-		ErrorCount: st.ErrorCount,
-		OKPct:      st.OKPct,
-		TimeoutPct: st.TimeoutPct,
-		ErrorPct:   st.ErrorPct,
-	}
-}
-
-// bucketView maps store.SeriesBucket onto the API shape (web/app.js
-// renderCharts reads ok_pct / avg_ttft_ms / avg_total_ms / samples /
-// start_ms).
-type bucketView struct {
-	StartMs       int64    `json:"start_ms"`
-	Samples       int      `json:"samples"`
-	OKPct         *float64 `json:"ok_pct"`
-	AvgTTFTMs     *int64   `json:"avg_ttft_ms"`
-	AvgTotalMs    *int64   `json:"avg_total_ms"`
-	AvgDecodeTPS  *float64 `json:"avg_decode_tps"`
-	AvgPrefillTPS *float64 `json:"avg_prefill_tps"`
-}
 
 // parseWindow validates the window parameter: 1h / 24h / 7d, default 24h
 // (REQUIREMENTS.md §3.4).
@@ -130,10 +83,10 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	view := statsViewFrom(s.st.Stats(p.ID, rev, window))
-	view.AvgTTFTMs, view.AvgTotalMs = s.st.AvgOnOK(p.ID, rev, window)
-	view.AvgDecodeTPS, view.AvgPrefillTPS = s.st.AvgThroughput(p.ID, rev, window)
-	writeJSON(w, http.StatusOK, view)
+	sv := view.StatsViewFrom(s.st.Stats(p.ID, rev, window))
+	sv.AvgTTFTMs, sv.AvgTotalMs = s.st.AvgOnOK(p.ID, rev, window)
+	sv.AvgDecodeTPS, sv.AvgPrefillTPS = s.st.AvgThroughput(p.ID, rev, window)
+	writeJSON(w, http.StatusOK, sv)
 }
 
 func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request) {
@@ -142,17 +95,9 @@ func (s *Server) handleSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	buckets := s.st.Series(p.ID, rev, window)
-	out := make([]bucketView, len(buckets))
+	out := make([]view.BucketView, len(buckets))
 	for i, b := range buckets {
-		out[i] = bucketView{
-			StartMs:       b.StartMs,
-			Samples:       b.Samples,
-			OKPct:         b.OKPct,
-			AvgTTFTMs:     b.AvgTTFTMs,
-			AvgTotalMs:    b.AvgTotalMs,
-			AvgDecodeTPS:  b.AvgDecodeTPS,
-			AvgPrefillTPS: b.AvgPrefillTPS,
-		}
+		out[i] = view.BucketViewFrom(b)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"buckets": out})
 }

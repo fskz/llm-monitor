@@ -5,61 +5,38 @@ package server
 
 import (
 	"encoding/json"
-	"html/template"
 	"io/fs"
 	"net/http"
 	"net/url"
 	"strconv"
 
 	"llm-monitor/internal/store"
+	"llm-monitor/internal/view"
 )
 
-// EngineAPI is the narrow slice of the scheduling engine the server needs.
-// It is an interface (instead of a concrete *engine.Engine) so this package
-// compiles independently of internal/engine; main adapts the engine to it.
-type EngineAPI interface {
-	// Probing reports whether a probe is currently in flight for the
-	// provider ("正在探测" is a hint only, it never overrides the
-	// monitor status, REQUIREMENTS.md §7.2).
-	Probing(id int) bool
-	// StorageError returns a non-empty description of the latest
-	// engine-side storage failure, or "" when healthy. The panel surfaces
-	// storage failures explicitly instead of blaming the probed API (§5.5).
-	StorageError() string
-	// ProbeNow runs one manual probe to completion and returns its
-	// persisted result (REQUIREMENTS.md §4.6).
-	ProbeNow(id int) (*store.Result, error)
-	// IsInFlight reports whether err means "a probe is already running"
-	// (mapped to HTTP 409 by the server).
-	IsInFlight(err error) bool
-}
-
-// ProviderMutator forwards configuration changes to the engine so it can
-// cancel in-flight probes and reschedule. New accepts nil when no engine is
-// wired (engine under parallel development); cancellation then simply does
-// not happen, which is safe for tests.
-type ProviderMutator interface {
-	Add(p store.Provider)
-	Update(p store.Provider)
-	Remove(id int)
-}
+// EngineAPI / ProviderMutator live in internal/view (task 10-09 阶段 3):
+// both front ends (panel server, TUI) share the same narrow engine slice,
+// adapted from the concrete engine in cmd. The aliases below keep the
+// server's signatures stable.
+type (
+	EngineAPI       = view.EngineAPI
+	ProviderMutator = view.ProviderMutator
+)
 
 // Server wires the store, the engine and the embedded panel assets into one
 // http.Handler.
 type Server struct {
-	st         *store.Store
-	eng        EngineAPI
-	mut        ProviderMutator
-	webFS      fs.FS
-	port       int
-	reportTmpl *template.Template
+	st    *store.Store
+	eng   EngineAPI
+	mut   ProviderMutator
+	webFS fs.FS
+	port  int
 }
 
 // New builds the server. eng and mut may be nil (no engine attached);
 // webFS is the embedded panel filesystem (web.FS()).
 func New(st *store.Store, eng EngineAPI, mut ProviderMutator, webFS fs.FS, port int) *Server {
-	tmpl := template.Must(template.New("report").Funcs(reportTmplFuncs).Parse(reportTmplSrc))
-	return &Server{st: st, eng: eng, mut: mut, webFS: webFS, port: port, reportTmpl: tmpl}
+	return &Server{st: st, eng: eng, mut: mut, webFS: webFS, port: port}
 }
 
 // Handler returns the complete routing tree, ready for http.Serve.
