@@ -148,3 +148,25 @@ stats-by-source 任务名下交付四项:①统计卡/趋势图跟随来源筛�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 指标增强包:P50/P95+连续异常+错误分布+抖动
+<!-- trellis-session: v=2 fp=336b8ad443c63a4c -->
+
+**Date**: 2026-10-10
+**Task**: 指标增强包:P50/P95+连续异常+错误分布+抖动
+**Branch**: `dev`
+
+### Summary
+
+metrics-pack 任务交付四项聚合层指标:store/quantiles.go 四个 Compute* 函数(最近邻秩分位数/连续计数/错误分布/翻转率,数学被 A1-A4 单测锁定),/api/stats 扩展字段+ProviderView.streak_fail,web 统计卡与概览连败角标,TUI 统计块,报告新卡;全部跟随来源筛选口径,P99 明确不做。指标包冒烟由用户开任务2的动作隐含确认。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `528ccb1` | feat(metrics): percentile, streak, error-breakdown and flip-rate pack |
+
+### Status
+
+[OK] **Completed**
