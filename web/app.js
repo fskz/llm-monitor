@@ -55,6 +55,9 @@ function fmtMs(v) {
 }
 
 function fmtTPS(v) { return v == null ? "—" : v.toFixed(1) + " tok/s"; }
+// TPOT is the reciprocal view of decode TPS over the same evidence
+// (usage-enabled ok samples): ms per output token.
+function fmtTPOT(decodeTps) { return decodeTps == null ? "—" : (1000 / decodeTps).toFixed(1) + " ms/tok"; }
 
 function fmtTime(ms) {
   if (!ms) return "—";
@@ -210,6 +213,7 @@ function renderStats(stats) {
     { l: "平均 TTFT（成功）", v: fmtMs(stats.avg_ttft_ms) },
     { l: "平均总耗时（成功）", v: fmtMs(stats.avg_total_ms) },
     { l: "平均 decode 吞吐（成功）", v: fmtTPS(stats.avg_decode_tps) },
+    { l: "平均 TPOT（成功）", v: fmtTPOT(stats.avg_decode_tps) },
     { l: "平均 prefill 吞吐（成功，近似·含排队）", v: fmtTPS(stats.avg_prefill_tps) },
   ];
   row.innerHTML = items.map((it) =>
@@ -446,6 +450,7 @@ async function manualProbe() {
         <tr><td>总耗时</td><td>${fmtMs(r.total_ms)}</td></tr>
         ${r.prompt_tokens != null || r.completion_tokens != null ? `<tr><td>Token 数</td><td>prompt ${r.prompt_tokens ?? "—"} / completion ${r.completion_tokens ?? "—"}</td></tr>` : ""}
         ${r.decode_tps != null || r.prefill_tps != null ? `<tr><td>吞吐</td><td>decode ${fmtTPS(r.decode_tps)} · prefill ${fmtTPS(r.prefill_tps)}（近似）</td></tr>` : ""}
+        ${r.decode_tps != null ? `<tr><td>TPOT</td><td>${fmtTPOT(r.decode_tps)}</td></tr>` : ""}
         <tr><td>HTTP</td><td>${r.http_status ?? "—"}</td></tr>
         ${r.error ? `<tr><td>错误</td><td class="wrap">${esc(r.error)}</td></tr>` : ""}
       </table>

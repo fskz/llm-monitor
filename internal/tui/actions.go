@@ -71,9 +71,15 @@ func (u *ui) probeNow(p store.Provider) {
 				if view.SlowTTFT(p, res) {
 					suffix = " [orange]（首内容偏慢）[-]"
 				}
-				u.setStatus(fmt.Sprintf("[green]%s[-]%s · TTFT %s · 总耗时 %s",
+				tpot := ""
+				if res.Status == "ok" {
+					if d := store.ResultTPS(*res, true); d != nil {
+						tpot = " · TPOT " + fmtTPOT(d)
+					}
+				}
+				u.setStatus(fmt.Sprintf("[green]%s[-]%s · TTFT %s · 总耗时 %s%s",
 					view.StatusText(res.Status), suffix,
-					fmtMs(res.TTFTMs), fmtMs(&res.TotalMs)))
+					fmtMs(res.TTFTMs), fmtMs(&res.TotalMs), tpot))
 			}
 		})
 	}()

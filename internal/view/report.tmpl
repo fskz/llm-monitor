@@ -68,6 +68,7 @@ footer { margin-top:28px; color:#9aa0a6; font-size:11.5px; border-top:1px solid 
   <div class="card"><div class="v">{{fmtMsOf .Stats.AvgTTFTMs}}</div><div class="l">平均 TTFT（成功）</div></div>
   <div class="card"><div class="v">{{fmtMsOf .Stats.AvgTotalMs}}</div><div class="l">平均总耗时（成功）</div></div>
   <div class="card"><div class="v">{{fmtTPSOf .Stats.AvgDecodeTPS}}</div><div class="l">decode 吞吐（成功）</div></div>
+  <div class="card"><div class="v">{{fmtTPOTOf .Stats.AvgDecodeTPS}}</div><div class="l">TPOT（成功）</div></div>
   <div class="card"><div class="v">{{fmtTPSOf .Stats.AvgPrefillTPS}}</div><div class="l">prefill 吞吐（近似）</div></div>
 </div>
 {{if eq .Stats.Samples 0}}<div class="note" style="margin-top:8px">暂无样本：该时间窗与目标版本下没有符合条件的定时探测记录，比例留空不显示 0%。</div>{{end}}

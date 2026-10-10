@@ -36,6 +36,7 @@ var reportTmplFuncs = template.FuncMap{
 	"fmtMsOf":       fmtMsReport,
 	"fmtPctOf":      func(p *float64) string { return pctOrDash(p) },
 	"fmtTPSOf":      func(p *float64) string { return tpsOrDash(p) },
+	"fmtTPOTOf":     tpotOrDash,
 	"reportMaxRows": func() int { return ReportMaxRows },
 }
 
@@ -51,6 +52,15 @@ func tpsOrDash(p *float64) string {
 		return "—"
 	}
 	return fmt.Sprintf("%.1f tok/s", *p)
+}
+
+// tpotOrDash renders the reciprocal view of decode TPS (ms per output
+// token) — the same evidence, read the other way.
+func tpotOrDash(decodeTPS *float64) string {
+	if decodeTPS == nil || *decodeTPS <= 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f ms/tok", 1000 / *decodeTPS)
 }
 
 // ReportMaxRows caps the detail table of an exported report: 20k rows make a

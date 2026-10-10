@@ -37,6 +37,15 @@ func fmtTPS(p *float64) string {
 	return strconv.FormatFloat(*p, 'f', 1, 64) + " tok/s"
 }
 
+// fmtTPOT renders the reciprocal view of decode TPS (ms per output token)
+// over the same evidence — one number, two readings.
+func fmtTPOT(decodeTPS *float64) string {
+	if decodeTPS == nil || *decodeTPS <= 0 {
+		return "—"
+	}
+	return strconv.FormatFloat(1000 / *decodeTPS, 'f', 1, 64) + " ms/tok"
+}
+
 func fmtInt(p *int) string {
 	if p == nil {
 		return "—"

@@ -4,7 +4,7 @@
 
 - 单请求流式文本探测,按判定规则分类(成功 / 超时 / HTTP / 连接 / 流 / 协议 / 空回复 / 中断)
 - 每对象独立调度,TTFT 与总耗时统计,成功率 / 超时率 / 错误率
-- 可选 usage 上报的 decode / prefill 吞吐统计
+- 可选 usage 上报的 decode / prefill 吞吐与 TPOT(每 token 生成耗时)统计
 - 明细历史(JSONL 追加,每对象默认保留 20000 条)
 
 ## 快速开始
@@ -129,7 +129,7 @@ reports/             TUI 导出的 HTML 报告
 - 详情页统计卡与趋势图**跟随来源筛选**(定时/手动/全部):筛什么统计什么;主动取消样本永不计入
 - 监测状态徽章始终由定时探测决定,不受来源筛选影响
 - 无样本时比例显示"暂无样本",不显示 0%
-- 吞吐仅对开启 `include_usage` 且成功的样本计算;无证据显示"—"
+- 吞吐与 TPOT 仅对开启 `include_usage` 且成功的样本计算;无证据显示"—";TPOT 是 decode 吞吐的倒数读法(ms/token)
 
 完整判定规则与状态优先级见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)。
 

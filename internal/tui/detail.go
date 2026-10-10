@@ -149,12 +149,12 @@ func (d *detailPane) statsBlock(p store.Provider, v view.ProviderView) string {
 		return fmt.Sprintf("[gray]统计（%s）：暂无样本[white]\n", d.filters.windowLabel())
 	}
 	return fmt.Sprintf(`统计（%s · %s · %s）：样本 %d · 成功 [green]%s[-] · 超时 [orange]%s[-] · 错误 [red]%s[-]
-平均 TTFT %s · 平均总耗时 %s · 解码 %s · 预填 %s（近似）
+平均 TTFT %s · 平均总耗时 %s · 解码 %s · TPOT %s · 预填 %s（近似）
 `,
 		d.filters.windowLabel(), revisionLabel(d.filters, v), d.filters.sourceLabel(),
 		stats.Samples, fmtPct(stats.OKPct), fmtPct(stats.TimeoutPct), fmtPct(stats.ErrorPct),
 		fmtMs(stats.AvgTTFTMs), fmtMs(stats.AvgTotalMs),
-		fmtTPS(stats.AvgDecodeTPS), fmtTPS(stats.AvgPrefillTPS))
+		fmtTPS(stats.AvgDecodeTPS), fmtTPOT(stats.AvgDecodeTPS), fmtTPS(stats.AvgPrefillTPS))
 }
 
 func revisionLabel(f filterState, v view.ProviderView) string {

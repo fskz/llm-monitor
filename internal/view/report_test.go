@@ -205,3 +205,44 @@ func TestScrubSecret(t *testing.T) {
 }
 
 func ptrInt(v int) *int { return &v }
+
+// The report carries the TPOT card, derived from the same decode TPS
+// evidence (TPOT metric task). A usage-carrying ok sample makes decode
+// TPS non-nil, so TPOT must render as a numeric ms/tok value; without
+// usage evidence it renders the dash.
+func TestReportContainsTPOT(t *testing.T) {
+	st := newTestStore(t)
+	p := seedProvider(t, st, nil)
+	now := time.Now().UnixMilli()
+	// ok row WITH usage: completion=32, ttft=500ms, total=1500ms →
+	// decode span 1000ms, 31 tokens → 31 tok/s → TPOT ≈ 32.3 ms/tok.
+	if _, err := st.AppendResult(store.Result{
+		ProviderID: p.ID, Revision: p.Revision,
+		BaseURL: p.BaseURL, Model: p.Model,
+		Source: store.SourceScheduled, Status: "ok", Success: true,
+		StartedAt: now - 60_000, FinishedAt: now - 60_000 + 1500,
+		TTFTMs: i64p(500), TotalMs: 1500,
+		PromptTokens: ptrInt(64), CompletionTokens: ptrInt(32),
+	}); err != nil {
+		t.Fatalf("AppendResult: %v", err)
+	}
+	body := renderReportFixture(t, st, p, p.Revision, store.SourceAll, 24*time.Hour)
+	if !strings.Contains(body, "TPOT") {
+		t.Fatal("report missing TPOT card")
+	}
+	if !strings.Contains(body, "ms/tok") {
+		t.Fatal("usage-backed sample must render a numeric TPOT (ms/tok)")
+	}
+	if !strings.Contains(body, "32.3 ms/tok") {
+		t.Fatal("TPOT value = want 32.3 ms/tok (1000/31)")
+	}
+
+	// No usage evidence → dash, never 0.
+	st2 := newTestStore(t)
+	p2 := seedProvider(t, st2, nil)
+	seedResult(t, st2, p2, "ok", now-60_000, i64p(500))
+	body2 := renderReportFixture(t, st2, p2, p2.Revision, store.SourceAll, 24*time.Hour)
+	if !strings.Contains(body2, "TPOT") || !strings.Contains(body2, "0.0 ms/tok") && !strings.Contains(body2, ">—<") {
+		t.Fatalf("TPOT without usage must render the dash:\n%s", body2[:400])
+	}
+}
