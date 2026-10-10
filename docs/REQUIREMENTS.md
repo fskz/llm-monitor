@@ -109,6 +109,7 @@
 
 ### 4.1 配置管理
 - [ ] 在网页上**添加 / 编辑 / 删除 / 启用停用**监测对象（provider）。
+- [ ] **克隆**对象（2026-10-10）：一键复制全部配置为新的独立对象（服务端复制含 API Key，密钥不经过页面），名称加「（副本）」后缀，克隆后自动打开编辑框并聚焦模型字段——同渠道多模型的常用建对象路径。
 - [ ] 配置字段：名称、Base URL、API Key、模型名、探测提示词、`max_tokens`、总超时、首内容超时、首内容慢阈值、探测间隔、是否启用。
 - [ ] Base URL 明确为 API 前缀，例如 `https://example.com/v1`；去掉尾部 `/` 后追加 `/chat/completions`，不自动猜测或重复追加 `/v1`。
 - [ ] 使用 Bearer API Key；允许无需鉴权的自托管接口留空。不跳过 HTTPS 证书校验。
@@ -293,6 +294,7 @@
 |------|------|------|
 | GET | `/api/providers` | 配置摘要、当前监测状态及最近定时探测结果；不返回完整 Key |
 | POST | `/api/providers` | 新增对象 |
+| POST | `/api/providers/{id}/clone` | 克隆对象为新的独立对象（2026-10-10）：服务端复制全部字段含 API Key（密钥不经过请求/响应体），名称加「（副本）」后缀，新 id/revision/空历史 |
 | PUT | `/api/providers/{id}` | 更新配置；地址或模型变更时递增 revision |
 | DELETE | `/api/providers/{id}` | 删除配置及对应历史，取消在途请求 |
 | POST | `/api/providers/{id}/probe` | 手动探测一次并返回最终结果；已有在途请求时返回 409 |

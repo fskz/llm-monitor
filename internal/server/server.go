@@ -44,6 +44,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/providers", s.handleListProviders)
 	mux.HandleFunc("POST /api/providers", s.sameOrigin(s.handleAddProvider))
+	mux.HandleFunc("POST /api/providers/{id}/clone", s.sameOrigin(s.handleCloneProvider))
 	mux.HandleFunc("PUT /api/providers/{id}", s.sameOrigin(s.handleUpdateProvider))
 	mux.HandleFunc("DELETE /api/providers/{id}", s.sameOrigin(s.handleDeleteProvider))
 	mux.HandleFunc("POST /api/providers/{id}/probe", s.sameOrigin(s.handleProbe))

@@ -64,6 +64,51 @@ func (s *Server) handleAddProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, view.ViewOf(s.st, s.eng, created))
 }
 
+// handleCloneProvider duplicates a provider as a NEW object (task:
+// clone-for-model-variants). The copy carries every field including the
+// API key — the key is read from the source server-side and never enters
+// a request or response body, preserving the "read APIs never return the
+// full key" contract (§5.4). The name gets a 副本 suffix; everything else
+// (base_url, model, thresholds…) is the starting point the user edits
+// afterwards — typically just the model name for the same channel.
+func (s *Server) handleCloneProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	src, exists := s.st.GetProvider(id)
+	if !exists {
+		writeError(w, http.StatusNotFound, "监测对象不存在")
+		return
+	}
+	f := view.ProviderForm{
+		Name:          src.Name + "（副本）",
+		BaseURL:       src.BaseURL,
+		Model:         src.Model,
+		Prompt:        src.Prompt,
+		MaxTokens:     src.MaxTokens,
+		IntervalSec:   src.IntervalSec,
+		TimeoutSec:    src.TimeoutSec,
+		TTFTTimeoutMs: src.TTFTTimeoutMs,
+		TTFTSlowMs:    src.TTFTSlowMs,
+		Enabled:       src.Enabled,
+		IncludeUsage:  src.IncludeUsage,
+	}
+	if msg := f.Validate(); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	created, err := s.st.AddProvider(f.ToProvider(src.APIKey))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "克隆失败："+err.Error())
+		return
+	}
+	if s.mut != nil {
+		s.mut.Add(created)
+	}
+	writeJSON(w, http.StatusCreated, view.ViewOf(s.st, s.eng, created))
+}
+
 func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r, "id")
 	if !ok {

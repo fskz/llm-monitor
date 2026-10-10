@@ -125,6 +125,7 @@ function renderOverview() {
       <div class="card-foot">
         <span class="muted">${lastTxt}</span>
         <span class="actions">
+          <button class="ghost act-clone" data-id="${p.id}" title="复制全部配置（含密钥）为新的监测对象，克隆后可直接改模型名">克隆</button>
           <button class="ghost act-edit" data-id="${p.id}">编辑</button>
           <button class="ghost act-delete" data-id="${p.id}">删除</button>
         </span>
@@ -140,6 +141,8 @@ function renderOverview() {
   });
   wrap.querySelectorAll(".act-edit").forEach((b) =>
     b.addEventListener("click", (ev) => { ev.stopPropagation(); openProviderDialog(Number(b.dataset.id)); }));
+  wrap.querySelectorAll(".act-clone").forEach((b) =>
+    b.addEventListener("click", (ev) => { ev.stopPropagation(); cloneProvider(Number(b.dataset.id)); }));
   wrap.querySelectorAll(".act-delete").forEach((b) =>
     b.addEventListener("click", (ev) => { ev.stopPropagation(); confirmDelete(Number(b.dataset.id)); }));
 }
@@ -416,6 +419,25 @@ function showFormError(msg) {
   const el = $("form-error");
   el.textContent = msg;
   el.classList.remove("hidden");
+}
+
+// cloneProvider duplicates a provider server-side (the API key is copied
+// there — it never reaches this page) and opens the edit dialog on the
+// new copy with the model field focused: the clone-for-model-variants
+// flow is click → type model name → save.
+async function cloneProvider(id) {
+  let created;
+  try {
+    created = await api(`/api/providers/${id}/clone`, { method: "POST" });
+  } catch (e) {
+    alert("克隆失败：" + e.message);
+    return;
+  }
+  await loadOverview();
+  openProviderDialog(created.id);
+  const model = $("f-model");
+  model.focus();
+  model.select();
 }
 
 async function confirmDelete(id) {

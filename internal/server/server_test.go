@@ -1154,3 +1154,57 @@ func TestReportFilenameCJKFallback(t *testing.T) {
 		t.Fatalf("Content-Disposition = %q, want prefix %q", cd, wantPrefix)
 	}
 }
+
+// Clone endpoint (clone-for-model-variants): every field is copied
+// including the API key (server-side only — the response carries the
+// masked view), the name gets the 副本 suffix, and the copy is a NEW
+// object with its own id/revision and an independent history.
+func TestCloneProvider(t *testing.T) {
+	s, _, mut := newTestServer(t)
+	src := addProviderDirect(t, s.st, func(p *store.Provider) {
+		p.APIKey = "sk-clone-source-key-123"
+		p.IncludeUsage = true
+	})
+
+	res, body := serve(t, s, "POST", fmt.Sprintf("/api/providers/%d/clone", src.ID), "", nil)
+	if res.StatusCode != 201 {
+		t.Fatalf("clone = %d: %s", res.StatusCode, body)
+	}
+	var cv view.ProviderView
+	if err := json.Unmarshal([]byte(body), &cv); err != nil {
+		t.Fatalf("decode clone: %v", err)
+	}
+	if cv.ID == src.ID {
+		t.Fatal("clone must be a new object with its own id")
+	}
+	if cv.Name != src.Name+"（副本）" {
+		t.Fatalf("clone name = %q, want %q", cv.Name, src.Name+"（副本）")
+	}
+	if cv.BaseURL != src.BaseURL || cv.Model != src.Model || !cv.IncludeUsage {
+		t.Fatalf("clone did not copy fields: %+v", cv)
+	}
+	// The key was copied server-side: masked + set, and the raw key never
+	// appears in the response body.
+	if !cv.APIKeySet || cv.APIKeyMask == "" || cv.APIKeyMask == "sk-clone-source-key-123" {
+		t.Fatalf("clone key view = set:%v mask:%q", cv.APIKeySet, cv.APIKeyMask)
+	}
+	if strings.Contains(body, "sk-clone-source-key-123") {
+		t.Fatal("raw API key leaked in the clone response")
+	}
+	// Store-level: the copy holds the same key; the engine was told.
+	got, _ := s.st.GetProvider(cv.ID)
+	if got.APIKey != "sk-clone-source-key-123" {
+		t.Fatalf("cloned provider lost the API key")
+	}
+	if len(mut.added) == 0 || mut.added[len(mut.added)-1] != cv.ID {
+		t.Fatalf("engine mutator not notified of the clone: %v", mut.added)
+	}
+	// Distinct histories: results of the source do not appear for the copy.
+	if s.st.ResultCount(cv.ID) != 0 {
+		t.Fatalf("clone must start with an empty history")
+	}
+	// 404 on a missing source.
+	if res, _ := serve(t, s, "POST", "/api/providers/99999/clone", "", nil); res.StatusCode != 404 {
+		t.Fatalf("clone of missing provider = %d, want 404", res.StatusCode)
+	}
+}
