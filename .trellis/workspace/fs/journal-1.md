@@ -123,3 +123,28 @@ grill-me 拷问定架构(tview TUI 默认/零监听/web 按需拉起/单进程�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 统计来源筛选 + TPOT + 克隆 + 一批冒烟修复
+<!-- trellis-session: v=2 fp=c0f37b773bf57be8 -->
+
+**Date**: 2026-10-10
+**Task**: 统计来源筛选 + TPOT + 克隆 + 一批冒烟修复
+**Branch**: `dev`
+
+### Summary
+
+stats-by-source 任务名下交付四项:①统计卡/趋势图跟随来源筛选(store 四函数加 source 参数,/api/stats|series 接 source 缺省 all,监测徽章保持定时口径);②TPOT 指标四端展示层换算(1000/decode_tps,同证据双读法);③克隆功能(服务端 POST /api/providers/{id}/clone 复制含 key 不经响应体,web 克隆后自动聚焦模型字段);④概览卡报错长文本挤压按钮的布局修复(卡片列 flex,按钮钉底)。用户真实终端冒烟全部通过。grill-me 后续已定两任务:指标包(P50/P95+连续异常+错误分布+抖动)与全局设置包(默认值预填+失败阈值提示+报告路径)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c9872e0` | feat(stats): make detail statistics follow the source filter |
+| `503e428` | feat(metrics): add TPOT (time per output token) across all front ends |
+| `044bcd4` | feat(web): clone a provider for same-channel model variants |
+| `112d4f7` | fix(web): pin overview card action buttons below the failure detail |
+
+### Status
+
+[OK] **Completed**

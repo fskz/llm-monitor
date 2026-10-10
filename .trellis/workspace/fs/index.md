@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-10-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~125 | Active |
+| `journal-1.md` | ~150 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-10-10 | 统计来源筛选 + TPOT + 克隆 + 一批冒烟修复 | `c9872e0`, `503e428`, `044bcd4`, `112d4f7` | `dev` |
 | 4 | 2026-10-10 | TUI 默认模式落地:零常驻端口改造全流程 | `b103045`, `588a499`, `a3c7b39`, `0cd0410`, `270ed60`, `15bcd71`, `4c96238` | `dev` |
 | 3 | 2026-10-09 | 导出 HTML 监控报告 | `9a1a94a`, `195c231`, `bf9513e` | `dev` |
 | 2 | 2026-10-09 | 探测指标增加 usage 精确吞吐统计 | `5298015`, `1278546`, `a0fe4ec` | `dev` |
