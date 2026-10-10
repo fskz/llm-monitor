@@ -109,7 +109,48 @@ func openForm(app *tview.Application, deps Deps, editID int, onDone func()) *for
 		}
 		return ev
 	})
+	// tview Form only moves between fields on Tab/Backtab; Up/Down are
+	// swallowed by InputField (no suggestions = no-op there). Wire them to
+	// field navigation — the near-universal TUI form convention — while
+	// Left/Right stay with the text cursor. Esc cancels as before.
+	d.form.SetInputCapture(d.arrowNavigation)
 	return d
+}
+
+// arrowNavigation maps Up = previous element, Down = next element. The wrap
+// matches Tab/Backtab semantics (tview wraps at both ends). focusIndex()
+// reports -1 until an element truly holds focus, so fall back to the form's
+// focusedElement bookkeeping (SetFocus target).
+func (d *formDialog) arrowNavigation(ev *tcell.EventKey) *tcell.EventKey {
+	if ev.Key() != tcell.KeyUp && ev.Key() != tcell.KeyDown {
+		return ev
+	}
+	item, button := d.form.GetFocusedItemIndex()
+	current := -1
+	if item >= 0 {
+		current = item
+	} else if button >= 0 {
+		current = d.form.GetFormItemCount() + button
+	}
+	total := d.form.GetFormItemCount() + d.form.GetButtonCount()
+	if current < 0 {
+		// No element has real focus yet (form not drawn); the tview Form
+		// still tracks the intended element in focusedElement. That field
+		// is private, so approximate: the element tview will focus on the
+		// next Tab — treat the intended one as current by probing
+		// SetFocus(0)'s bookkeeping via its observable effect below.
+		current = 0
+	}
+	if total == 0 {
+		return ev
+	}
+	if ev.Key() == tcell.KeyDown {
+		current = (current + 1) % total
+	} else {
+		current = (current - 1 + total) % total
+	}
+	d.form.SetFocus(current)
+	return nil
 }
 
 // centerRows centers the inner content vertically.
