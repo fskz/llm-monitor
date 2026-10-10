@@ -123,7 +123,7 @@ function renderOverview() {
         <div class="rate rate-error">错误率 <b>${fmtPct(st.error_pct)}</b></div>
       </div>
       <div class="card-foot">
-        <span class="muted">${lastTxt}</span>
+        <span class="muted last-line">${lastTxt}</span>
         <span class="actions">
           <button class="ghost act-clone" data-id="${p.id}" title="复制全部配置（含密钥）为新的监测对象，克隆后可直接改模型名">克隆</button>
           <button class="ghost act-edit" data-id="${p.id}">编辑</button>

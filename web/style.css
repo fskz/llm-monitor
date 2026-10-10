@@ -49,6 +49,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
   padding: 14px 16px; cursor: pointer; transition: box-shadow .15s;
+  /* Column layout keeps the action row pinned to the card bottom even
+     when a long failure reason stretches this card (or the grid row). */
+  display: flex; flex-direction: column;
 }
 .card:hover { box-shadow: 0 2px 10px rgba(0,0,0,.08); }
 .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
@@ -74,8 +77,12 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .rate-ok b { color: var(--ok); }
 .rate-timeout b { color: var(--timeout); }
 .rate-error b { color: var(--fail); }
-.card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
-.card-foot .actions { display: flex; gap: 6px; }
+/* The footer stacks: failure detail wraps on its own line (long error
+   texts must never crowd the buttons out), then the action row sits at
+   the card bottom, right-aligned. */
+.card-foot { margin-top: auto; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.card-foot .last-line { overflow-wrap: anywhere; }
+.card-foot .actions { display: flex; gap: 6px; justify-content: flex-end; }
 .empty-hint { color: var(--muted); text-align: center; padding: 40px 0; grid-column: 1 / -1; }
 
 /* 详情 */
