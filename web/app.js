@@ -225,25 +225,46 @@ function renderRevisions(p) {
 }
 
 function renderStats(stats) {
-  const row = $("stat-row");
-  const items = [
-    { l: "样本数", v: stats.samples ?? 0 },
-    { l: "成功", v: `${stats.ok ?? 0}（${fmtPct(stats.ok_pct)}）`, cls: "rate-ok" },
-    { l: "超时", v: `${stats.timeout ?? 0}（${fmtPct(stats.timeout_pct)}）`, cls: "rate-timeout" },
-    { l: "错误", v: `${stats.error ?? 0}（${fmtPct(stats.error_pct)}）`, cls: "rate-error" },
-    { l: "平均 TTFT（成功）", v: fmtMs(stats.avg_ttft_ms) },
-    { l: "TTFT P50 / P95（成功）", v: `${fmtMs(stats.ttft_p50_ms)} / ${fmtMs(stats.ttft_p95_ms)}` },
-    { l: "总耗时 P50 / P95（成功）", v: `${fmtMs(stats.total_p50_ms)} / ${fmtMs(stats.total_p95_ms)}` },
-    { l: "抖动（结果翻转率）", v: fmtFlip(stats.flip_rate) },
-    { l: "平均总耗时（成功）", v: fmtMs(stats.avg_total_ms) },
-    { l: "平均 decode 吞吐（成功）", v: fmtTPS(stats.avg_decode_tps) },
-    { l: "平均 TPOT（成功）", v: fmtTPOT(stats.avg_decode_tps) },
-    { l: "平均 prefill 吞吐（成功，近似·含排队）", v: fmtTPS(stats.avg_prefill_tps) },
+  // Grouped metric sections keep the twelve-plus cards scannable: rates →
+  // latency → throughput → stability. The (成功样本) qualifier lives in the
+  // group title so card labels stay short.
+  const card = (it) =>
+    `<div class="stat${it.wide ? " wide" : ""}"><div class="v ${it.cls || ""}">${esc(String(it.v))}</div><div class="l">${it.l}</div></div>`;
+  const groups = [
+    {
+      title: "样本与比率",
+      items: [
+        { l: "样本数", v: stats.samples ?? 0 },
+        { l: "成功", v: `${stats.ok ?? 0}（${fmtPct(stats.ok_pct)}）`, cls: "rate-ok" },
+        { l: "超时", v: `${stats.timeout ?? 0}（${fmtPct(stats.timeout_pct)}）`, cls: "rate-timeout" },
+        { l: "错误", v: `${stats.error ?? 0}（${fmtPct(stats.error_pct)}）`, cls: "rate-error" },
+      ],
+    },
+    {
+      title: "延迟（成功样本）",
+      items: [
+        { l: "平均 TTFT", v: fmtMs(stats.avg_ttft_ms) },
+        { l: "TTFT P50 / P95", v: `${fmtMs(stats.ttft_p50_ms)} / ${fmtMs(stats.ttft_p95_ms)}` },
+        { l: "平均总耗时", v: fmtMs(stats.avg_total_ms) },
+        { l: "总耗时 P50 / P95", v: `${fmtMs(stats.total_p50_ms)} / ${fmtMs(stats.total_p95_ms)}` },
+      ],
+    },
+    {
+      title: "吞吐（成功样本，prefill 为近似·含排队）",
+      items: [
+        { l: "decode 吞吐", v: fmtTPS(stats.avg_decode_tps) },
+        { l: "TPOT", v: fmtTPOT(stats.avg_decode_tps) },
+        { l: "prefill 吞吐", v: fmtTPS(stats.avg_prefill_tps) },
+      ],
+    },
   ];
+  const stability = [{ l: "抖动（结果翻转率）", v: fmtFlip(stats.flip_rate) }];
   const breakdown = (stats.errors_by_kind || []).map((e) => `${e.label}×${e.count}`).join(" · ");
-  if (breakdown) items.push({ l: "错误分布", v: breakdown, wide: true });
-  row.innerHTML = items.map((it) =>
-    `<div class="stat${it.wide ? " wide" : ""}"><div class="v ${it.cls || ""}">${esc(String(it.v))}</div><div class="l">${it.l}</div></div>`).join("");
+  if (breakdown) stability.push({ l: "错误分布", v: breakdown, wide: true });
+  groups.push({ title: "稳定性", items: stability });
+
+  $("stat-row").innerHTML = groups.map((g) =>
+    `<div class="stat-group"><div class="stat-group-title">${g.title}</div><div class="stat-cards">${g.items.map(card).join("")}</div></div>`).join("");
   $("detail-samples").textContent = stats.samples ? `统计样本 ${stats.samples} 条` : "暂无样本";
 }
 

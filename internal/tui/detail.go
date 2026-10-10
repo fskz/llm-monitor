@@ -151,21 +151,25 @@ func (d *detailPane) statsBlock(p store.Provider, v view.ProviderView) string {
 	pct := d.st.ComputePercentiles(p.ID, d.filters.revisionOf(p), d.filters.window, src)
 	flip := d.st.ComputeFlipRate(p.ID, d.filters.revisionOf(p), d.filters.window, src)
 	breakdown := d.st.ComputeErrorBreakdown(p.ID, d.filters.revisionOf(p), d.filters.window, src)
-	out := fmt.Sprintf(`统计（%s · %s · %s）：样本 %d · 成功 [green]%s[-] · 超时 [orange]%s[-] · 错误 [red]%s[-]
-TTFT P50/P95 %s / %s · 总耗时 P50/P95 %s / %s · 抖动 %s
-平均 TTFT %s · 平均总耗时 %s · 解码 %s · TPOT %s · 预填 %s（近似）
+	// Grouped like the web panel: rates / latency / throughput / stability,
+	// one line each — the qualifier lives on the group, not every value.
+	out := fmt.Sprintf(`统计（%s · %s · %s）
+[gray]▸ 样本与比率[white]  样本 %d · 成功 [green]%s[-] · 超时 [orange]%s[-] · 错误 [red]%s[-]
+[gray]▸ 延迟（成功样本）[white]  TTFT 平均 %s · P50/P95 %s/%s · 总耗时 平均 %s · P50/P95 %s/%s
+[gray]▸ 吞吐（成功样本）[white]  decode %s · TPOT %s · prefill %s（近似）
+[gray]▸ 稳定性[white]  抖动 %s
 `,
 		d.filters.windowLabel(), revisionLabel(d.filters, v), d.filters.sourceLabel(),
 		stats.Samples, fmtPct(stats.OKPct), fmtPct(stats.TimeoutPct), fmtPct(stats.ErrorPct),
-		fmtMs(pct.TTFTP50), fmtMs(pct.TTFTP95), fmtMs(pct.TotalP50), fmtMs(pct.TotalP95), fmtFlip(flip),
-		fmtMs(stats.AvgTTFTMs), fmtMs(stats.AvgTotalMs),
-		fmtTPS(stats.AvgDecodeTPS), fmtTPOT(stats.AvgDecodeTPS), fmtTPS(stats.AvgPrefillTPS))
+		fmtMs(stats.AvgTTFTMs), fmtMs(pct.TTFTP50), fmtMs(pct.TTFTP95), fmtMs(stats.AvgTotalMs), fmtMs(pct.TotalP50), fmtMs(pct.TotalP95),
+		fmtTPS(stats.AvgDecodeTPS), fmtTPOT(stats.AvgDecodeTPS), fmtTPS(stats.AvgPrefillTPS),
+		fmtFlip(flip))
 	if len(breakdown) > 0 {
 		parts := make([]string, 0, len(breakdown))
 		for _, e := range breakdown {
 			parts = append(parts, fmt.Sprintf("%s×%d", view.StatusText(e.Status), e.Count))
 		}
-		out += "错误分布 " + strings.Join(parts, " · ") + "\n"
+		out += "[gray]  错误分布[white] " + strings.Join(parts, " · ") + "\n"
 	}
 	return out
 }

@@ -19,6 +19,9 @@ h2 { font-size:15px; margin:26px 0 10px; border-left:4px solid #2563eb; padding-
 .badge.manual_only { background:#cffafe; color:var(--manual); }
 .slow { color:var(--slow); font-size:12px; margin-left:6px; }
 .cards { display:flex; flex-wrap:wrap; gap:10px; }
+/* 分组指标区 (10-10 排版优化): 组标题 + 组内卡片 */
+.stat-section { margin: 0 0 12px; }
+.stat-section-title { color:#6a737d; font-size:11px; letter-spacing:.5px; margin-bottom:4px; }
 .card { border:1px solid #e2e4e8; border-radius:8px; padding:8px 14px; min-width:118px; }
 .card.wide { flex:1 1 100%; }
 .card.wide .v { font-size:14px; font-weight:500; overflow-wrap:anywhere; }
@@ -62,21 +65,31 @@ footer { margin-top:28px; color:#9aa0a6; font-size:11.5px; border-top:1px solid 
 {{end}}
 
 <h2>统计（{{.Filters}}）</h2>
+<div class="stat-section"><div class="stat-section-title">样本与比率</div>
 <div class="cards">
   <div class="card"><div class="v">{{.Stats.Samples}}</div><div class="l">样本数</div></div>
   <div class="card"><div class="v c-ok">{{fmtPctOf .Stats.OKPct}}</div><div class="l">成功率（{{.Stats.OK}}）</div></div>
   <div class="card"><div class="v c-timeout">{{fmtPctOf .Stats.TimeoutPct}}</div><div class="l">超时率（{{.Stats.Timeout}}）</div></div>
   <div class="card"><div class="v c-error">{{fmtPctOf .Stats.ErrorPct}}</div><div class="l">错误率（{{.Stats.ErrorCount}}）</div></div>
-  <div class="card"><div class="v">{{fmtMsOf .Stats.AvgTTFTMs}}</div><div class="l">平均 TTFT（成功）</div></div>
-  <div class="card"><div class="v">{{fmtMsOf .Stats.TTFTP50Ms}} / {{fmtMsOf .Stats.TTFTP95Ms}}</div><div class="l">TTFT P50 / P95（成功）</div></div>
-  <div class="card"><div class="v">{{fmtMsOf .Stats.TotalP50Ms}} / {{fmtMsOf .Stats.TotalP95Ms}}</div><div class="l">总耗时 P50 / P95（成功）</div></div>
+</div></div>
+<div class="stat-section"><div class="stat-section-title">延迟（成功样本）</div>
+<div class="cards">
+  <div class="card"><div class="v">{{fmtMsOf .Stats.AvgTTFTMs}}</div><div class="l">平均 TTFT</div></div>
+  <div class="card"><div class="v">{{fmtMsOf .Stats.TTFTP50Ms}} / {{fmtMsOf .Stats.TTFTP95Ms}}</div><div class="l">TTFT P50 / P95</div></div>
+  <div class="card"><div class="v">{{fmtMsOf .Stats.AvgTotalMs}}</div><div class="l">平均总耗时</div></div>
+  <div class="card"><div class="v">{{fmtMsOf .Stats.TotalP50Ms}} / {{fmtMsOf .Stats.TotalP95Ms}}</div><div class="l">总耗时 P50 / P95</div></div>
+</div></div>
+<div class="stat-section"><div class="stat-section-title">吞吐（成功样本，prefill 为近似·含排队）</div>
+<div class="cards">
+  <div class="card"><div class="v">{{fmtTPSOf .Stats.AvgDecodeTPS}}</div><div class="l">decode 吞吐</div></div>
+  <div class="card"><div class="v">{{fmtTPOTOf .Stats.AvgDecodeTPS}}</div><div class="l">TPOT</div></div>
+  <div class="card"><div class="v">{{fmtTPSOf .Stats.AvgPrefillTPS}}</div><div class="l">prefill 吞吐</div></div>
+</div></div>
+<div class="stat-section"><div class="stat-section-title">稳定性</div>
+<div class="cards">
   <div class="card"><div class="v">{{fmtFlipOf .Stats.FlipRate}}</div><div class="l">抖动（结果翻转率）</div></div>
-  <div class="card"><div class="v">{{fmtMsOf .Stats.AvgTotalMs}}</div><div class="l">平均总耗时（成功）</div></div>
-  <div class="card"><div class="v">{{fmtTPSOf .Stats.AvgDecodeTPS}}</div><div class="l">decode 吞吐（成功）</div></div>
-  <div class="card"><div class="v">{{fmtTPOTOf .Stats.AvgDecodeTPS}}</div><div class="l">TPOT（成功）</div></div>
-  <div class="card"><div class="v">{{fmtTPSOf .Stats.AvgPrefillTPS}}</div><div class="l">prefill 吞吐（近似）</div></div>
   {{if .Stats.ErrorsByKind}}<div class="card wide"><div class="v">{{fmtErrKinds .Stats.ErrorsByKind}}</div><div class="l">错误分布</div></div>{{end}}
-</div>
+</div></div>
 {{if eq .Stats.Samples 0}}<div class="note" style="margin-top:8px">暂无样本：该时间窗与目标版本下没有符合条件的定时探测记录，比例留空不显示 0%。</div>{{end}}
 
 <h2>成功率趋势</h2>
