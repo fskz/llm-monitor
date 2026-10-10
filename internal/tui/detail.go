@@ -148,13 +148,26 @@ func (d *detailPane) statsBlock(p store.Provider, v view.ProviderView) string {
 	if stats.Samples == 0 {
 		return fmt.Sprintf("[gray]统计（%s）：暂无样本[white]\n", d.filters.windowLabel())
 	}
-	return fmt.Sprintf(`统计（%s · %s · %s）：样本 %d · 成功 [green]%s[-] · 超时 [orange]%s[-] · 错误 [red]%s[-]
+	pct := d.st.ComputePercentiles(p.ID, d.filters.revisionOf(p), d.filters.window, src)
+	flip := d.st.ComputeFlipRate(p.ID, d.filters.revisionOf(p), d.filters.window, src)
+	breakdown := d.st.ComputeErrorBreakdown(p.ID, d.filters.revisionOf(p), d.filters.window, src)
+	out := fmt.Sprintf(`统计（%s · %s · %s）：样本 %d · 成功 [green]%s[-] · 超时 [orange]%s[-] · 错误 [red]%s[-]
+TTFT P50/P95 %s / %s · 总耗时 P50/P95 %s / %s · 抖动 %s
 平均 TTFT %s · 平均总耗时 %s · 解码 %s · TPOT %s · 预填 %s（近似）
 `,
 		d.filters.windowLabel(), revisionLabel(d.filters, v), d.filters.sourceLabel(),
 		stats.Samples, fmtPct(stats.OKPct), fmtPct(stats.TimeoutPct), fmtPct(stats.ErrorPct),
+		fmtMs(pct.TTFTP50), fmtMs(pct.TTFTP95), fmtMs(pct.TotalP50), fmtMs(pct.TotalP95), fmtFlip(flip),
 		fmtMs(stats.AvgTTFTMs), fmtMs(stats.AvgTotalMs),
 		fmtTPS(stats.AvgDecodeTPS), fmtTPOT(stats.AvgDecodeTPS), fmtTPS(stats.AvgPrefillTPS))
+	if len(breakdown) > 0 {
+		parts := make([]string, 0, len(breakdown))
+		for _, e := range breakdown {
+			parts = append(parts, fmt.Sprintf("%s×%d", view.StatusText(e.Status), e.Count))
+		}
+		out += "错误分布 " + strings.Join(parts, " · ") + "\n"
+	}
+	return out
 }
 
 func revisionLabel(f filterState, v view.ProviderView) string {

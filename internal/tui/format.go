@@ -46,6 +46,22 @@ func fmtTPOT(decodeTPS *float64) string {
 	return strconv.FormatFloat(1000 / *decodeTPS, 'f', 1, 64) + " ms/tok"
 }
 
+// fmtFlip renders the flip ("jitter") rate with the same qualitative bands
+// as the web panel: <5% 稳定 / 5-20% 波动 / >20% 频繁翻转.
+func fmtFlip(r *float64) string {
+	if r == nil {
+		return "—"
+	}
+	band := "稳定"
+	switch {
+	case *r > 0.2:
+		band = "频繁翻转"
+	case *r >= 0.05:
+		band = "波动"
+	}
+	return strconv.FormatFloat(*r*100, 'f', 1, 64) + "%（" + band + "）"
+}
+
 func fmtInt(p *int) string {
 	if p == nil {
 		return "—"

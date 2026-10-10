@@ -108,6 +108,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	sv := view.StatsViewFrom(s.st.Stats(p.ID, rev, window, source))
 	sv.AvgTTFTMs, sv.AvgTotalMs = s.st.AvgOnOK(p.ID, rev, window, source)
 	sv.AvgDecodeTPS, sv.AvgPrefillTPS = s.st.AvgThroughput(p.ID, rev, window, source)
+	sv.FillMetricsPack(s.st, p.ID, rev, window, source)
 	writeJSON(w, http.StatusOK, sv)
 }
 

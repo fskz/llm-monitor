@@ -103,6 +103,9 @@ select, input, textarea {
   background: var(--card); border: 1px solid var(--border); border-radius: 8px;
   padding: 10px 16px; min-width: 130px;
 }
+/* Wide variant: text-heavy cards (error distribution) span the row. */
+.stat.wide { flex: 1 1 100%; }
+.stat.wide .v { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .stat .v { font-size: 18px; font-weight: 600; }
 .stat .l { color: var(--muted); font-size: 12px; }
 

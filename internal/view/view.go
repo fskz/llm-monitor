@@ -90,6 +90,10 @@ type ProviderView struct {
 	LastProbe     *LastProbeView `json:"last_probe"`
 	Stats         StatsView      `json:"stats"`
 	StorageError  string         `json:"storage_error"`
+	// StreakFail is the current run of consecutive scheduled failures
+	// (24h window, scheduled source — schedule health view). 0 when the
+	// newest run is ok; the overview card shows a 连败 badge at ≥2.
+	StreakFail int `json:"streak_fail"`
 }
 
 // LastProbeView is the most recent valid scheduled probe of the current
@@ -164,6 +168,8 @@ func ViewOf(st *store.Store, eng EngineStatus, p store.Provider) ProviderView {
 	// the overview card is schedule health and does NOT follow the detail
 	// view's source filter (task 10-10-stats-by-source).
 	v.Stats = StatsViewFrom(st.Stats(p.ID, p.Revision, 24*time.Hour, store.SourceScheduled))
+	// Streak badge rides on the same schedule-health view (10-10-metrics-pack).
+	v.StreakFail = st.ComputeStreaks(p.ID, p.Revision, 24*time.Hour, store.SourceScheduled).Fail
 	return v
 }
 

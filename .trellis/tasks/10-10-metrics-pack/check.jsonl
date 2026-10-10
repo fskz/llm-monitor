@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "核对统计契约与 null 语义未被破坏"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层字段一致性检查"}

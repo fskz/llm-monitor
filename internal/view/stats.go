@@ -1,6 +1,8 @@
 package view
 
 import (
+	"time"
+
 	"llm-monitor/internal/store"
 )
 
@@ -22,6 +24,23 @@ type StatsView struct {
 	// none qualify (panel shows "—", never 0).
 	AvgDecodeTPS  *float64 `json:"avg_decode_tps"`
 	AvgPrefillTPS *float64 `json:"avg_prefill_tps"`
+	// Metrics-pack (10-10): nearest-rank percentiles of the ok samples,
+	// the flip ("jitter") rate and the per-status error breakdown, all
+	// following the same window/revision/source filter as the counts.
+	TTFTP50Ms    *int64          `json:"ttft_p50_ms"`
+	TTFTP95Ms    *int64          `json:"ttft_p95_ms"`
+	TotalP50Ms   *int64          `json:"total_p50_ms"`
+	TotalP95Ms   *int64          `json:"total_p95_ms"`
+	FlipRate     *float64        `json:"flip_rate"`
+	ErrorsByKind []ErrorKindView `json:"errors_by_kind"`
+}
+
+// ErrorKindView is one non-ok status with its count (most frequent
+// first); empty array when the window has no failing sample.
+type ErrorKindView struct {
+	Status string `json:"status"`
+	Count  int    `json:"count"`
+	Label  string `json:"label"`
 }
 
 // StatsViewFrom maps a store.Stats onto the API shape. Timeout merges the
@@ -36,6 +55,21 @@ func StatsViewFrom(st store.Stats) StatsView {
 		OKPct:      st.OKPct,
 		TimeoutPct: st.TimeoutPct,
 		ErrorPct:   st.ErrorPct,
+	}
+}
+
+// FillMetricsPack attaches the metrics-pack aggregates (percentiles, flip
+// rate, error breakdown) computed under the same filter family. Label uses
+// the shared Chinese status table.
+func (v *StatsView) FillMetricsPack(st *store.Store, providerID, revision int, window time.Duration, source string) {
+	p := st.ComputePercentiles(providerID, revision, window, source)
+	v.TTFTP50Ms, v.TTFTP95Ms = p.TTFTP50, p.TTFTP95
+	v.TotalP50Ms, v.TotalP95Ms = p.TotalP50, p.TotalP95
+	v.FlipRate = st.ComputeFlipRate(providerID, revision, window, source)
+	for _, e := range st.ComputeErrorBreakdown(providerID, revision, window, source) {
+		v.ErrorsByKind = append(v.ErrorsByKind, ErrorKindView{
+			Status: e.Status, Count: e.Count, Label: StatusText(e.Status),
+		})
 	}
 }
 

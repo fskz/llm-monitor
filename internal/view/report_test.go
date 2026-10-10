@@ -246,3 +246,22 @@ func TestReportContainsTPOT(t *testing.T) {
 		t.Fatalf("TPOT without usage must render the dash:\n%s", body2[:400])
 	}
 }
+
+// Metrics-pack cards land in the report: P50/P95, flip rate band, and the
+// error breakdown row for a mixed fixture.
+func TestReportMetricsPack(t *testing.T) {
+	st := newTestStore(t)
+	p := seedProvider(t, st, nil)
+	now := time.Now().UnixMilli()
+	for i := 0; i < 3; i++ {
+		seedResult(t, st, p, "ok", now-int64(i)*60_000, i64p(300))
+	}
+	seedResult(t, st, p, "http_error", now-4*60_000, nil)
+	seedResult(t, st, p, "conn_error", now-5*60_000, nil)
+	body := renderReportFixture(t, st, p, p.Revision, store.SourceAll, 24*time.Hour)
+	for _, want := range []string{"P50 / P95", "抖动", "错误分布", "错误（HTTP）×1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("report missing %q (metrics-pack)", want)
+		}
+	}
+}

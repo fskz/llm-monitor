@@ -37,6 +37,8 @@ var reportTmplFuncs = template.FuncMap{
 	"fmtPctOf":      func(p *float64) string { return pctOrDash(p) },
 	"fmtTPSOf":      func(p *float64) string { return tpsOrDash(p) },
 	"fmtTPOTOf":     tpotOrDash,
+	"fmtFlipOf":     flipOrDash,
+	"fmtErrKinds":   errKindsText,
 	"reportMaxRows": func() int { return ReportMaxRows },
 }
 
@@ -61,6 +63,31 @@ func tpotOrDash(decodeTPS *float64) string {
 		return "—"
 	}
 	return fmt.Sprintf("%.1f ms/tok", 1000 / *decodeTPS)
+}
+
+// flipOrDash renders the flip ("jitter") rate with the qualitative bands
+// shared with the panel/TUI: <5% 稳定 / 5-20% 波动 / >20% 频繁翻转.
+func flipOrDash(r *float64) string {
+	if r == nil {
+		return "—"
+	}
+	band := "稳定"
+	switch {
+	case *r > 0.2:
+		band = "频繁翻转"
+	case *r >= 0.05:
+		band = "波动"
+	}
+	return fmt.Sprintf("%.1f%%（%s）", *r*100, band)
+}
+
+// errKindsText renders the error breakdown as "标签×N · …".
+func errKindsText(kinds []ErrorKindView) string {
+	parts := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		parts = append(parts, fmt.Sprintf("%s×%d", k.Label, k.Count))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // ReportMaxRows caps the detail table of an exported report: 20k rows make a
@@ -145,6 +172,7 @@ func RenderReport(w io.Writer, st *store.Store, eng EngineStatus, p store.Provid
 	// The report's stats follow the report's own source parameter
 	// (2026-10-10: previously always scheduled-only).
 	stats := StatsViewFrom(st.Stats(p.ID, rev, window, source))
+	stats.FillMetricsPack(st, p.ID, rev, window, source)
 	stats.AvgTTFTMs, stats.AvgTotalMs = st.AvgOnOK(p.ID, rev, window, source)
 	stats.AvgDecodeTPS, stats.AvgPrefillTPS = st.AvgThroughput(p.ID, rev, window, source)
 	buckets := st.Series(p.ID, rev, window, source)

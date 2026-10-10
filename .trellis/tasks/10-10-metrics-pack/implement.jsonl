@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "统计口径契约(inWindow/cancelled 剔除/null-not-zero)与包依赖方向;新聚合函数须遵守"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "新指标字段贯穿 store→view→server/tui/web 四层,review 按清单检查"}

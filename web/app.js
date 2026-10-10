@@ -58,6 +58,13 @@ function fmtTPS(v) { return v == null ? "—" : v.toFixed(1) + " tok/s"; }
 // TPOT is the reciprocal view of decode TPS over the same evidence
 // (usage-enabled ok samples): ms per output token.
 function fmtTPOT(decodeTps) { return decodeTps == null ? "—" : (1000 / decodeTps).toFixed(1) + " ms/tok"; }
+// Flip ("jitter") rate with a qualitative band: <5% 稳定, 5-20% 波动, >20% 频繁翻转.
+function fmtFlip(r) {
+  if (r == null) return "—";
+  const pct = (r * 100).toFixed(1) + "%";
+  const band = r < 0.05 ? "稳定" : r <= 0.2 ? "波动" : "频繁翻转";
+  return `${pct}（${band}）`;
+}
 
 function fmtTime(ms) {
   if (!ms) return "—";
@@ -78,6 +85,9 @@ function statusBadge(p) {
   if (p.status === "ok" && p.slow_ttft) html += `<span class="slow-dot" title="可用，但首内容较慢"></span>`;
   if (p.probing) html += `<span class="muted"> · 正在探测</span>`;
   html += `</span>`;
+  // Consecutive-failure badge (metrics-pack): ≥2 makes "真挂了" visible
+  // next to the single-result status.
+  if ((p.streak_fail || 0) >= 2) html += ` <span class="badge fail" title="连续失败 ${p.streak_fail} 次">连败 ${p.streak_fail}</span>`;
   return html;
 }
 
@@ -214,13 +224,18 @@ function renderStats(stats) {
     { l: "超时", v: `${stats.timeout ?? 0}（${fmtPct(stats.timeout_pct)}）`, cls: "rate-timeout" },
     { l: "错误", v: `${stats.error ?? 0}（${fmtPct(stats.error_pct)}）`, cls: "rate-error" },
     { l: "平均 TTFT（成功）", v: fmtMs(stats.avg_ttft_ms) },
+    { l: "TTFT P50 / P95（成功）", v: `${fmtMs(stats.ttft_p50_ms)} / ${fmtMs(stats.ttft_p95_ms)}` },
+    { l: "总耗时 P50 / P95（成功）", v: `${fmtMs(stats.total_p50_ms)} / ${fmtMs(stats.total_p95_ms)}` },
+    { l: "抖动（结果翻转率）", v: fmtFlip(stats.flip_rate) },
     { l: "平均总耗时（成功）", v: fmtMs(stats.avg_total_ms) },
     { l: "平均 decode 吞吐（成功）", v: fmtTPS(stats.avg_decode_tps) },
     { l: "平均 TPOT（成功）", v: fmtTPOT(stats.avg_decode_tps) },
     { l: "平均 prefill 吞吐（成功，近似·含排队）", v: fmtTPS(stats.avg_prefill_tps) },
   ];
+  const breakdown = (stats.errors_by_kind || []).map((e) => `${e.label}×${e.count}`).join(" · ");
+  if (breakdown) items.push({ l: "错误分布", v: breakdown, wide: true });
   row.innerHTML = items.map((it) =>
-    `<div class="stat"><div class="v ${it.cls || ""}">${esc(String(it.v))}</div><div class="l">${it.l}</div></div>`).join("");
+    `<div class="stat${it.wide ? " wide" : ""}"><div class="v ${it.cls || ""}">${esc(String(it.v))}</div><div class="l">${it.l}</div></div>`).join("");
   $("detail-samples").textContent = stats.samples ? `统计样本 ${stats.samples} 条` : "暂无样本";
 }
 
