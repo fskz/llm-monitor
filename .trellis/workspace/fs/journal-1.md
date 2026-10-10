@@ -95,3 +95,31 @@ GET /api/report 导出单对象自包含 HTML 报告（服务端 html/template �
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: TUI 默认模式落地:零常驻端口改造全流程
+<!-- trellis-session: v=2 fp=443df22d00cdb27d -->
+
+**Date**: 2026-10-10
+**Task**: TUI 默认模式落地:零常驻端口改造全流程
+**Branch**: `dev`
+
+### Summary
+
+grill-me 拷问定架构(tview TUI 默认/零监听/web 按需拉起/单进程单实例/视图下沉共享包)后分阶段实施:internal/view 下沉视图组装与报告纯函数化(含 web/app.js 状态表契约测试)、main 重构为零监听启动、internal/tui 双栏全功能界面(列表/详情/sparkline/分页筛选/表单/手动探测/报告导出/按需 web)、REQUIREMENTS 与 go-conventions 同步修订、新增 README。过程中修复 .gitignore 吞掉 cmd/llm-monitor 源码目录的问题,冒烟反馈修复表单上下键导航与模态中全局热键吞输入两个交互 bug。统计样本跟随来源筛选的需求已确认,下一任务处理。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b103045` | refactor(view): extract shared view assembly layer from server |
+| `588a499` | feat(tui): make the terminal UI the default front end with zero listening ports |
+| `a3c7b39` | docs: revise requirements and Go conventions for the TUI default mode |
+| `0cd0410` | chore(trellis): task artifacts for 10-09-tui-default |
+| `270ed60` | fix(tui): navigate form fields with Up/Down keys |
+| `15bcd71` | docs: add README with configuration and usage guide |
+| `4c96238` | fix(tui): stop global hotkeys from swallowing form input |
+
+### Status
+
+[OK] **Completed**
