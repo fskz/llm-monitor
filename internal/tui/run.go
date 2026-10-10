@@ -202,10 +202,15 @@ func (u *ui) renderStatus() {
 }
 
 // globalKeys handles application-level keys: quit and the actions that must
-// work wherever the focus sits when no modal is open. Focus-specific keys
-// (list navigation, detail filters) are captured earlier and bubble up here
-// when unhandled.
+// work wherever the focus sits when no modal is open. The app-level capture
+// runs BEFORE the focused primitive, so while a modal (form / delete
+// confirm) is up every key must pass through — otherwise typing p/r/w/q
+// into an input field would trigger probe/export/web/quit instead of
+// inserting the character.
 func (u *ui) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
+	if u.modalOpen() {
+		return ev
+	}
 	if ev.Key() == tcell.KeyRune {
 		switch ev.Rune() {
 		case keyQuit, 'Q':

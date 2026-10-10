@@ -78,3 +78,44 @@ func TestFormDialogShape(t *testing.T) {
 	}
 	_ = tview.NewApplication() // keep the tview import honest in this file
 }
+
+// While a modal is open, the app-level capture must pass every key through
+// so typing p/r/w/q inside a form field inserts the character instead of
+// triggering probe/export/web/quit (regression: p was swallowed by
+// globalKeys before the fix).
+func TestGlobalKeysPassThroughWhenModalOpen(t *testing.T) {
+	u := &ui{pages: tview.NewPages()}
+	u.pages.AddPage("main", tview.NewBox(), true, true)
+	u.pages.AddAndSwitchToPage("modal", tview.NewBox(), true)
+
+	if !u.modalOpen() {
+		t.Fatal("modal must be reported open")
+	}
+	for _, r := range []rune{'p', 'r', 'w', 'q', 'Q', 'x'} {
+		ev := u.globalKeys(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+		if ev == nil {
+			t.Fatalf("key %q must pass through while a modal is open", r)
+		}
+	}
+
+	// And with no modal, the action keys are consumed again (p/r hit the
+	// "no provider selected" guard; w starts the panel lifecycle and fails
+	// on the invalid port — all without touching a nil dependency).
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	u.app = tview.NewApplication()
+	u.deps = Deps{Store: st}
+	u.overview = newOverviewPane(st, nil, nil)
+	u.statusBar = tview.NewTextView().SetDynamicColors(true)
+	u.web = newWebPanel(Deps{})
+	u.pages.RemovePage("modal")
+	u.pages.SwitchToPage("main")
+	for _, r := range []rune{'p', 'r', 'w'} {
+		ev := u.globalKeys(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+		if ev != nil {
+			t.Fatalf("key %q must be consumed with no modal open (got %v)", r, ev)
+		}
+	}
+}
