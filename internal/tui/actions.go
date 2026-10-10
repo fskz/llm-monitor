@@ -53,6 +53,38 @@ func (u *ui) exportReport(p store.Provider) (string, error) {
 // probeNow runs one manual probe for the selected provider on a background
 // goroutine and surfaces the outcome on the status line: the result line on
 // success, the in-flight conflict message on 409-equivalent errors (§4.6).
+// toggleCurrent flips the selected provider's enabled flag (x key): a
+// regular Update — the engine cancels the in-flight probe (persisted
+// cancelled) and stops/resumes the scheduler; manual probes remain
+// available while disabled. Revision is untouched (enabled is not a
+// target change, §4.1).
+func (u *ui) toggleCurrent() {
+	id := u.overview.selectedID()
+	if id <= 0 {
+		u.setStatus("[gray]请先选择监测对象[-]")
+		return
+	}
+	p, ok := u.deps.Store.GetProvider(id)
+	if !ok {
+		u.setStatus("[gray]监测对象已不存在[-]")
+		return
+	}
+	p.Enabled = !p.Enabled
+	if err := u.deps.Store.UpdateProvider(p); err != nil {
+		u.setStatus("[red]操作失败：" + tviewEscape(err.Error()) + "[-]")
+		return
+	}
+	if u.deps.Mutator != nil {
+		u.deps.Mutator.Update(p)
+	}
+	u.afterMutation()
+	if p.Enabled {
+		u.setStatus("[green]已启用 " + tviewEscape(p.Name) + "：恢复自动定时探测[-]")
+	} else {
+		u.setStatus("[orange]已停用 " + tviewEscape(p.Name) + "：已停止自动定时探测（手动测试仍可用）[-]")
+	}
+}
+
 func (u *ui) probeNow(p store.Provider) {
 	if u.deps.Engine == nil {
 		u.setStatus("[red]探测引擎未就绪[-]")

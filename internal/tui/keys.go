@@ -15,6 +15,7 @@ package tui
 //	  R          版本: 当前 / 全部 (cycle)
 //	  S          来源: 定时 / 手动 / 全部 (cycle)
 //	  PgDn/PgUp  results table next / previous page
+//	  x          启用/停用当前对象（停止/恢复自动定时探测）
 //	  p          手动探测当前对象               (阶段 4b)
 //	  e / n / d  编辑 / 新建 / 删除对象         (阶段 4b)
 //	  r          导出 HTML 报告                 (阶段 4b)
@@ -32,4 +33,5 @@ const (
 	keyExport    = 'r' // 阶段 4b
 	keyWeb       = 'w' // 阶段 4b
 	keySettings  = ',' // 10-10-settings-pack
+	keyToggle    = 'x' // 启用/停用当前对象
 )

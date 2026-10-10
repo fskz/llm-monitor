@@ -229,7 +229,12 @@ func waitForStatus(u *ui, want string) bool {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		got := make(chan string, 1)
-		u.app.QueueUpdate(func() { got <- u.statusBar.GetText(true) })
+		// The update runs in its own goroutine so a dead event loop can
+		// never block the poll itself (QueueUpdate waits for the loop's
+		// acknowledgment; without this a crashed loop would hang here).
+		go func() {
+			u.app.QueueUpdate(func() { got <- u.statusBar.GetText(true) })
+		}()
 		select {
 		case s := <-got:
 			if strings.Contains(s, want) {

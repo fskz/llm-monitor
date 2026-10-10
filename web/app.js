@@ -140,6 +140,7 @@ function renderOverview() {
       <div class="card-foot">
         <span class="muted last-line">${lastTxt}</span>
         <span class="actions">
+          <button class="ghost act-toggle" data-id="${p.id}" title="${p.enabled ? "停止自动定时探测（手动测试仍可用）" : "恢复自动定时探测"}">${p.enabled ? "停用" : "启用"}</button>
           <button class="ghost act-clone" data-id="${p.id}" title="复制全部配置（含密钥）为新的监测对象，克隆后可直接改模型名">克隆</button>
           <button class="ghost act-edit" data-id="${p.id}">编辑</button>
           <button class="ghost act-delete" data-id="${p.id}">删除</button>
@@ -156,6 +157,8 @@ function renderOverview() {
   });
   wrap.querySelectorAll(".act-edit").forEach((b) =>
     b.addEventListener("click", (ev) => { ev.stopPropagation(); openProviderDialog(Number(b.dataset.id)); }));
+  wrap.querySelectorAll(".act-toggle").forEach((b) =>
+    b.addEventListener("click", (ev) => { ev.stopPropagation(); toggleProvider(Number(b.dataset.id)); }));
   wrap.querySelectorAll(".act-clone").forEach((b) =>
     b.addEventListener("click", (ev) => { ev.stopPropagation(); cloneProvider(Number(b.dataset.id)); }));
   wrap.querySelectorAll(".act-delete").forEach((b) =>
@@ -487,6 +490,28 @@ async function saveSettings(ev) {
     const el = $("settings-error");
     el.textContent = e.message;
     el.classList.remove("hidden");
+  }
+}
+
+// toggleProvider flips the enabled flag through the regular PUT: the
+// engine's Update cancels any in-flight probe and stops/resumes the
+// scheduler; manual probes stay available while disabled. api_key is
+// omitted so the stored key is kept (§5.4 absent = keep).
+async function toggleProvider(id) {
+  const p = providers.find((x) => x.id === id);
+  if (!p) return;
+  const body = {
+    name: p.name, base_url: p.base_url, model: p.model,
+    prompt: p.prompt, max_tokens: p.max_tokens, interval_sec: p.interval_sec,
+    timeout_sec: p.timeout_sec, ttft_timeout_ms: p.ttft_timeout_ms,
+    ttft_slow_ms: p.ttft_slow_ms, include_usage: !!p.include_usage,
+    enabled: !p.enabled,
+  };
+  try {
+    await api(`/api/providers/${id}`, { method: "PUT", body: JSON.stringify(body) });
+    await loadOverview();
+  } catch (e) {
+    alert((p.enabled ? "停用" : "启用") + "失败：" + e.message);
   }
 }
 

@@ -234,6 +234,11 @@ func (u *ui) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 				u.openSettingsModal()
 				return nil
 			}
+		case keyToggle:
+			if !u.modalOpen() {
+				u.toggleCurrent()
+				return nil
+			}
 		}
 	}
 	return ev

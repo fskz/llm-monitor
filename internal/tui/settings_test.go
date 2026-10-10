@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"github.com/rivo/tview"
+
 	"path/filepath"
 	"testing"
 
@@ -88,3 +90,50 @@ func TestOpenFormPrefillsDefaults(t *testing.T) {
 		t.Fatalf("prefilled form = %+v", f)
 	}
 }
+
+// toggleCurrent (x key): flips enabled in the store, notifies the mutator,
+// and reports the state change on the status line.
+func TestToggleCurrent(t *testing.T) {
+	st, _ := store.New(t.TempDir())
+	ids := seedProviders(t, st, 1) // enabled: true
+	mut := &recordingMutator{}
+	app := newTestApp(t)
+	u := &ui{app: app, deps: Deps{Store: st, Mutator: mut}}
+	u.statusBar = tview.NewTextView().SetDynamicColors(true)
+	u.overview = newOverviewPane(st, nil, nil)
+	u.overview.selected = ids[0]
+	u.detail = newDetailPane(st, nil)
+	u.detailView = tview.NewTextView().SetDynamicColors(true)
+	u.pages = tview.NewPages()
+
+	u.toggleCurrent()
+	p, _ := st.GetProvider(ids[0])
+	if p.Enabled {
+		t.Fatal("toggle must disable an enabled provider")
+	}
+	if len(mut.updated) != 1 || mut.updated[0] != ids[0] {
+		t.Fatalf("mutator updated = %v, want [%d]", mut.updated, ids[0])
+	}
+	if !waitForStatus(u, "已停用") {
+		t.Fatalf("status = %q, want 已停用", u.statusBar.GetText(true))
+	}
+
+	u.toggleCurrent()
+	p, _ = st.GetProvider(ids[0])
+	if !p.Enabled {
+		t.Fatal("second toggle must re-enable")
+	}
+	if !waitForStatus(u, "已启用") {
+		t.Fatalf("status = %q, want 已启用", u.statusBar.GetText(true))
+	}
+}
+
+type recordingMutator struct {
+	added   []int
+	updated []int
+	removed []int
+}
+
+func (m *recordingMutator) Add(p store.Provider)    { m.added = append(m.added, p.ID) }
+func (m *recordingMutator) Update(p store.Provider) { m.updated = append(m.updated, p.ID) }
+func (m *recordingMutator) Remove(id int)           { m.removed = append(m.removed, id) }
