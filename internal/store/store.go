@@ -149,6 +149,11 @@ type Store struct {
 	results map[int]*providerResults
 }
 
+// Dir returns the store's root directory (where config.json and results/
+// live). Read-only accessor for front ends that place sibling artifacts
+// (e.g. the TUI's exported reports) next to the data.
+func (s *Store) Dir() string { return s.dir }
+
 // New opens the store rooted at dir, creating the directory if needed, and
 // loads config.json plus every provider history file. A corrupt config.json
 // is returned as an error so the caller decides how to surface it; corrupt

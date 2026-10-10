@@ -32,6 +32,6 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# build outputs
+# build outputs (root binary only — the leading slash keeps cmd/llm-monitor/ tracked)
 dist/
-llm-monitor
+/llm-monitor
