@@ -106,16 +106,17 @@
       </label>
       <label>模型 *<input id="f-model" required placeholder="deepseek-chat"></label>
       <label>探测提示词<textarea id="f-prompt" rows="2"></textarea></label>
+      <!-- 数值框 step="any"：预填值经单位换算（interval_sec=90 → 1.5 分钟、10050ms → 10.05 秒），固定步进会被 step-mismatch 拦截提交；范围校验由 app.js 负责（10-12 #3）-->
       <div class="row3">
         <label>max_tokens<input id="f-maxtokens" type="number" min="1" value="128"></label>
-        <label>探测间隔（分钟，0=仅手动）<input id="f-interval" type="number" min="0" step="1" value="5"></label>
+        <label>探测间隔（分钟，0=仅手动）<input id="f-interval" type="number" min="0" step="any" value="5"></label>
         <label class="check"><input type="checkbox" id="f-enabled" checked> 启用定时调度</label>
       </div>
       <label class="check"><input type="checkbox" id="f-usage"> 吞吐指标（请求 usage，按服务端 token 计数）</label>
       <div class="row4">
-        <label>首内容超时（秒）<input id="f-ttft" type="number" min="1" step="0.1" value="10"></label>
-        <label>总超时（秒）<input id="f-timeout" type="number" min="1" step="0.1" value="60"></label>
-        <label>首内容慢阈值（秒）<input id="f-slow" type="number" min="0.1" step="0.1" value="2"></label>
+        <label>首内容超时（秒）<input id="f-ttft" type="number" min="1" step="any" value="10"></label>
+        <label>总超时（秒）<input id="f-timeout" type="number" min="1" step="any" value="60"></label>
+        <label>首内容慢阈值（秒）<input id="f-slow" type="number" min="0.1" step="any" value="2"></label>
         <label class="check"></label>
       </div>
     </div>
@@ -147,10 +148,10 @@
     <fieldset>
       <legend>新建对象默认值（仅预填新建表单）</legend>
       <label>max_tokens<input id="s-maxtokens" type="number" min="1" required></label>
-      <label>探测间隔（分钟，0=仅手动）<input id="s-interval" type="number" min="0" required></label>
+      <label>探测间隔（分钟，0=仅手动）<input id="s-interval" type="number" min="0" step="any" required></label>
       <label>总超时（秒）<input id="s-timeout" type="number" min="1" required></label>
-      <label>首内容超时（秒）<input id="s-ttft" type="number" min="0.1" step="0.1" required></label>
-      <label>慢阈值（秒）<input id="s-slow" type="number" min="0.1" step="0.1" required></label>
+      <label>首内容超时（秒）<input id="s-ttft" type="number" min="0.1" step="any" required></label>
+      <label>慢阈值（秒）<input id="s-slow" type="number" min="0.1" step="any" required></label>
       <label class="check"><input id="s-enabled" type="checkbox"> 默认启用定时探测</label>
       <label class="check"><input id="s-usage" type="checkbox"> 默认请求 usage 统计</label>
     </fieldset>

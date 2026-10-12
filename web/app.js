@@ -101,12 +101,22 @@ function statusBadge(p) {
 async function loadOverview() {
   try {
     providers = await api("/api/providers");
-    if (!appSettings) appSettings = await api("/api/settings"); // once; the dialog refreshes it
-    $("storage-warn").classList.toggle("hidden", !providers.some((p) => p.storage_error));
-    renderOverview();
   } catch (e) {
     console.error("load overview failed:", e);
+    return;
   }
+  // Settings failure must not block rendering the already-fetched providers:
+  // keep the current appSettings (may be null; renderOverview falls back) and
+  // retry on the next poll (10-12 #7).
+  if (!appSettings) {
+    try {
+      appSettings = await api("/api/settings"); // once; the dialog refreshes it
+    } catch (e) {
+      console.warn("load settings failed:", e);
+    }
+  }
+  $("storage-warn").classList.toggle("hidden", !providers.some((p) => p.storage_error));
+  renderOverview();
 }
 
 function renderOverview() {
@@ -381,6 +391,10 @@ function renderResults(page, stats) {
 
 function defaultPrompt() { return "请回复： pong"; }
 
+// Fallback new-provider prefill when /api/settings has not loaded yet
+// (fields mirror the settings API's defaults object).
+const FALLBACK_DEFAULTS = { max_tokens: 128, interval_sec: 300, timeout_sec: 60, ttft_timeout_ms: 15000, ttft_slow_ms: 3000, enabled: true, include_usage: false };
+
 function openProviderDialog(id) {
   const dlg = $("dlg-provider");
   $("form-error").classList.add("hidden");
@@ -399,15 +413,18 @@ function openProviderDialog(id) {
   $("f-model").value = p ? p.model : "";
   $("f-prompt").value = p ? p.prompt : defaultPrompt();
   // New-provider defaults come from the tool settings when loaded
-  // (10-10-settings-pack); editing prefills the object itself.
-  const d = (appSettings && appSettings.defaults) || { max_tokens: 128, interval_sec: 300, timeout_sec: 60, ttft_timeout_ms: 15000, ttft_slow_ms: 3000, enabled: true, include_usage: false };
-  $("f-maxtokens").value = p ? p.max_tokens : d.max_tokens;
-  $("f-interval").value = p ? (p.interval_sec ? p.interval_sec / 60 : 0) : (d.interval_sec ? d.interval_sec / 60 : 0);
-  $("f-ttft").value = p ? p.ttft_timeout_ms / 1000 : d.ttft_timeout_ms / 1000;
-  $("f-timeout").value = p ? p.timeout_sec : d.timeout_sec;
-  $("f-slow").value = p ? p.ttft_slow_ms / 1000 : d.ttft_slow_ms / 1000;
-  $("f-enabled").checked = p ? p.enabled : d.enabled;
-  $("f-usage").checked = p ? !!p.include_usage : !!d.include_usage;
+  // (10-10-settings-pack); editing prefills the object itself. One merge
+  // overlays the provider's fields on the defaults (10-12 S7); the provider
+  // view always carries all seven fields, so nothing leaks through.
+  const d = (appSettings && appSettings.defaults) || FALLBACK_DEFAULTS;
+  const f = { ...d, ...(p || {}) };
+  $("f-maxtokens").value = f.max_tokens;
+  $("f-interval").value = f.interval_sec ? f.interval_sec / 60 : 0;
+  $("f-ttft").value = f.ttft_timeout_ms / 1000;
+  $("f-timeout").value = f.timeout_sec;
+  $("f-slow").value = f.ttft_slow_ms / 1000;
+  $("f-enabled").checked = f.enabled;
+  $("f-usage").checked = !!f.include_usage;
   dlg.showModal();
 }
 
