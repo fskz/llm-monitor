@@ -1,7 +1,9 @@
 # LLM Monitor Go Conventions
 
 > Code-spec extracted from the MVP implementation (task 10-08-mvp-llm-monitor),
-> updated by task 10-09-tui-default (TUI default mode + on-demand web panel).
+> updated by task 10-09-tui-default (TUI default mode + on-demand web panel),
+> task 10-10 metrics/settings packs, and 10-12-review-fixpack (tview callback
+> re-entry, MetricsPack aggregation, settings-validation single owner).
 > Authority for judgment rules is `docs/REQUIREMENTS.md` §3; this file records
 > the executable contracts the code now relies on.
 
@@ -112,8 +114,19 @@ protocol_error | empty | aborted | cancelled`
   yields `seq:0`; this was a real bug).
 - Pagination cursor = composite `(started_at, seq)`, strictly "before", so
   same-timestamp records are separable. Server encodes it base64.
-- Stats: denominator `source=scheduled && status!=cancelled`, window filters
-  on `started_at`; zero samples → all pct fields JSON `null` (never 0%).
+- Stats: denominator = non-cancelled records under the query's source filter
+  (`scheduled`/`manual`/`all`; `cancelled` never counts), window filters on
+  `started_at`; zero samples → all pct fields JSON `null` (never 0%).
+- **Hot-path statistics go through `store.MetricsPack(providerID, revision,
+  window, source)`** (10-12-review-fixpack): ONE `snapshot()` copy + ONE
+  filter pass fills Stats / Streaks / Percentiles / FlipRate / ErrorsByKind /
+  AvgOnOK / AvgThroughput / Revisions. Consumers: `view.ViewOf`, server
+  `handleStats`, `view.RenderReport`, TUI `statsBlock`. Every per-metric
+  method (`Stats`, `ComputePercentiles`, …) takes its own full-record copy
+  (≤20k records ≈3.7MB), so a consumer calling them one-by-one multiplies
+  that copy 6-7× per 5s poll — do NOT do that in new code. Equivalence with
+  the individual methods is pinned by `TestMetricsPackEquivalence`
+  (store/metricspack_test.go); a new aggregate field must extend that test.
 
 ## Scheduling rules
 
@@ -149,6 +162,10 @@ protocol_error | empty | aborted | cancelled`
   can never drift apart. Rules: name/model non-empty; base_url `http(s)://`;
   `max_tokens>0`; `interval_sec==0||>=60`;
   `0<ttft_slow_ms<ttft_timeout_ms<=timeout_sec*1000`; `timeout_sec>0`.
+  Tool-level settings follow the same one-owner rule:
+  `view.ValidateSettings(store.Settings)` (+ `view.DirWritable`) owns the
+  settings messages; both `PUT /api/settings` and the TUI settings form call
+  it (10-12-review-fixpack — two verbatim copies used to drift-risk).
 - Monitor status priority (§7.2): disabled > manual_only > unknown > stale
   (`>2*interval+timeout`) > ok (+`slow_ttft` when `ttft_ms>ttft_slow_ms`) >
   fail. `probing` is a hint bit, never overrides a status.
@@ -170,6 +187,20 @@ protocol_error | empty | aborted | cancelled`
 
 - tview primitives mutate on the app goroutine only; background work
   (manual probe) lands through `QueueUpdateDraw`.
+- **tview callbacks are synchronous and re-entrant** (10-12-review-fixpack):
+  `List.SetCurrentItem` (and the first `AddItem`) fires `SetChangedFunc`
+  synchronously — restoring the cursor inside a redraw re-enters
+  `changed → onChange → redraw → refresh` and overflows the stack. Programmatic
+  cursor restores must sit behind a re-entry guard (see `overviewPane.refreshing`
+  in overview.go); `List.Clear()` never fires the callback. Modal contract:
+  `SetDoneFunc` receives `(-1, "")` for Esc and `(i, label)` for button i —
+  a confirm modal must handle every idx, not just the confirm button, or it
+  has no dismiss path (deleteDoneFunc in forms.go).
+- **After `Application.Run` returns, `QueueUpdateDraw` blocks forever** (the
+  event loop that acknowledges the update is gone). Background goroutines
+  that outlive the loop (5s ticker, in-flight manual probes) route UI updates
+  through `ui.queueDraw`, which consults the `ui.quit` channel closed on both
+  exit paths (run.go) — headless mode included.
 - Terminal tests use `tcell.NewSimulationScreen` wrapped in `readyScreen`
   (run_test.go) — the wrapper closes a channel on Init to give the test a
   happens-before edge; without it the race detector fires on InjectKey.
@@ -193,7 +224,9 @@ protocol_error | empty | aborted | cancelled`
 - Key non-leakage has three layers: ProviderView masking, probe-time
   `replaceKey`, and render-time `view.ScrubSecret` in report rows (records
   appended by other paths may bypass probe sanitization). The TUI detail
-  rows scrub too (`scrubKey` in detail.go).
+  rows scrub through the SAME exported `view.ScrubSecret` — never
+  re-implement redaction locally (the former `scrubKey` copy was removed in
+  10-12-review-fixpack).
 - null vs 0 discipline applies to display too: unobserved token counts
   render "—", never "0" (§9.2).
 
