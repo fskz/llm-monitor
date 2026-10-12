@@ -141,16 +141,13 @@ func (d *detailPane) statsBlock(p store.Provider, v view.ProviderView) string {
 	// what the user filtered for; the monitor badge in the header stays on
 	// scheduled probes (§7.2) via view.ViewOf.
 	src := d.filters.source
-	stats := view.StatsViewFrom(d.st.Stats(p.ID, d.filters.revisionOf(p), d.filters.window, src))
-	stats.AvgTTFTMs, stats.AvgTotalMs = d.st.AvgOnOK(p.ID, d.filters.revisionOf(p), d.filters.window, src)
-	stats.AvgDecodeTPS, stats.AvgPrefillTPS = d.st.AvgThroughput(p.ID, d.filters.revisionOf(p), d.filters.window, src)
+	// PERF1 (10-12-review-fixpack): one snapshot, one filter pass — the six
+	// per-metric calls previously re-snapshotted the same record set.
+	stats := view.StatsViewFromPack(d.st.MetricsPack(p.ID, d.filters.revisionOf(p), d.filters.window, src))
 
 	if stats.Samples == 0 {
 		return fmt.Sprintf("[gray]统计（%s）：暂无样本[white]\n", d.filters.windowLabel())
 	}
-	pct := d.st.ComputePercentiles(p.ID, d.filters.revisionOf(p), d.filters.window, src)
-	flip := d.st.ComputeFlipRate(p.ID, d.filters.revisionOf(p), d.filters.window, src)
-	breakdown := d.st.ComputeErrorBreakdown(p.ID, d.filters.revisionOf(p), d.filters.window, src)
 	// Grouped like the web panel: rates / latency / throughput / stability,
 	// one line each — the qualifier lives on the group, not every value.
 	out := fmt.Sprintf(`统计（%s · %s · %s）
@@ -161,13 +158,13 @@ func (d *detailPane) statsBlock(p store.Provider, v view.ProviderView) string {
 `,
 		d.filters.windowLabel(), revisionLabel(d.filters, v), d.filters.sourceLabel(),
 		stats.Samples, fmtPct(stats.OKPct), fmtPct(stats.TimeoutPct), fmtPct(stats.ErrorPct),
-		fmtMs(stats.AvgTTFTMs), fmtMs(pct.TTFTP50), fmtMs(pct.TTFTP95), fmtMs(stats.AvgTotalMs), fmtMs(pct.TotalP50), fmtMs(pct.TotalP95),
+		fmtMs(stats.AvgTTFTMs), fmtMs(stats.TTFTP50Ms), fmtMs(stats.TTFTP95Ms), fmtMs(stats.AvgTotalMs), fmtMs(stats.TotalP50Ms), fmtMs(stats.TotalP95Ms),
 		fmtTPS(stats.AvgDecodeTPS), fmtTPOT(stats.AvgDecodeTPS), fmtTPS(stats.AvgPrefillTPS),
-		fmtFlip(flip))
-	if len(breakdown) > 0 {
-		parts := make([]string, 0, len(breakdown))
-		for _, e := range breakdown {
-			parts = append(parts, fmt.Sprintf("%s×%d", view.StatusText(e.Status), e.Count))
+		fmtFlip(stats.FlipRate))
+	if len(stats.ErrorsByKind) > 0 {
+		parts := make([]string, 0, len(stats.ErrorsByKind))
+		for _, e := range stats.ErrorsByKind {
+			parts = append(parts, fmt.Sprintf("%s×%d", e.Label, e.Count))
 		}
 		out += "[gray]  错误分布[white] " + strings.Join(parts, " · ") + "\n"
 	}
