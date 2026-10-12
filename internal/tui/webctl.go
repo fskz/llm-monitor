@@ -86,13 +86,6 @@ func (w *webPanel) running() bool {
 	return w.ln != nil
 }
 
-// currentURL returns the bound URL or "" when stopped.
-func (w *webPanel) currentURL() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.url
-}
-
 // isClosedConnErr matches the "use of closed network connection" family that
 // http.Serve returns after listener Close on various platforms.
 func isClosedConnErr(err error) bool {
@@ -134,5 +127,9 @@ func openBrowser(url string) {
 	}
 	if err := cmd.Start(); err != nil {
 		fmt.Printf("自动打开浏览器失败（%v）；请手动访问 %s\n", err, url)
+		return
 	}
+	// Reap the child (review fixpack #4): without a Wait the helper process
+	// stays a zombie for the lifetime of the monitor.
+	go func() { _ = cmd.Wait() }()
 }

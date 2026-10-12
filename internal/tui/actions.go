@@ -94,7 +94,7 @@ func (u *ui) probeNow(p store.Provider) {
 	u.setStatus("[yellow]正在探测 " + tviewEscape(p.Name) + " ……[-]")
 	go func() {
 		res, err := u.deps.Engine.ProbeNow(id)
-		u.app.QueueUpdateDraw(func() {
+		u.queueDraw(func() {
 			switch {
 			case err != nil && u.deps.Engine.IsInFlight(err):
 				u.setStatus("[orange]正在探测：该对象已有在途请求[-]")

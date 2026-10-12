@@ -130,6 +130,44 @@ func TestOverviewRefreshPreservesSelection(t *testing.T) {
 	}
 }
 
+// Review fixpack #1 (P0): with a wired changed-callback that redraws (the
+// real onChange → redrawLocked → refresh cycle), a refresh restoring the
+// cursor to index ≥1 must not recurse without bound. Before the refreshing
+// guard, Clear() reset currentItem to 0 and SetCurrentItem(i) synchronously
+// re-entered the callback chain until the stack blew.
+func TestOverviewRefreshNoRecursionWithChangedCallback(t *testing.T) {
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	seedProviders(t, st, 2)
+
+	o := newOverviewPane(st, nil, nil)
+	// Mirror run.go: the callback re-enters refresh (selectProvider →
+	// redrawLocked → overview.refresh) — exactly the cycle that blew the
+	// stack when SetCurrentItem fired the callback programmatically.
+	o.onChange = func(id int) {
+		o.selected = id
+		o.refresh()
+	}
+	o.wireSelection()
+
+	// Select the second provider, then rebuild the list the way the 5s tick
+	// does. Without the guard this call chain never returns.
+	o.selected = 2
+	o.refresh()
+
+	if o.selectedID() != 2 {
+		t.Fatalf("selection = %d, want 2", o.selectedID())
+	}
+	if o.list.GetCurrentItem() != 1 {
+		t.Fatalf("cursor = %d, want 1", o.list.GetCurrentItem())
+	}
+	if o.refreshing {
+		t.Fatal("refreshing flag must be reset after refresh returns")
+	}
+}
+
 // Pagination walks strictly older via (started_at, seq) and PgUp returns
 // through the cursor stack (web/app.js prevCursors pattern).
 func TestDetailPagination(t *testing.T) {

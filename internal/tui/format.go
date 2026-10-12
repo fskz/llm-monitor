@@ -5,7 +5,6 @@ import (
 
 	"github.com/rivo/tview"
 
-	"llm-monitor/internal/store"
 	"llm-monitor/internal/view"
 )
 
@@ -60,20 +59,6 @@ func monitorColor(status string) string {
 		return "yellow"
 	}
 	return "white"
-}
-
-// monitorStatusOf maps one manual-probe result to the §7.2 monitor ladder
-// used by the status line: ok/fail by result, manual_only when scheduled
-// probing is off (the probe outcome is real but does not change schedule
-// health).
-func monitorStatusOf(p store.Provider, res *store.Result) string {
-	if !p.Enabled || p.IntervalSec == 0 {
-		return "manual_only"
-	}
-	if res.Status == "ok" {
-		return "ok"
-	}
-	return "fail"
 }
 
 // tviewEscape shields user/target text before it lands inside a color-tagged

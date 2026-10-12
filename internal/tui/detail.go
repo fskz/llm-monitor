@@ -92,7 +92,7 @@ func newDetailPane(st *store.Store, eng view.EngineStatus) *detailPane {
 // outer focus cycle.
 func (d *detailPane) renderText(p store.Provider) string {
 	v := d.viewOf(p)
-	return d.header(v) + d.summary(v) + d.statsBlock(p, v) + d.charts(p) + d.resultsTable(p)
+	return d.header(v) + d.summary(v) + d.statsBlock(p, v) + d.charts(p) + d.resultsTable(p, v)
 }
 
 func (d *detailPane) viewOf(p store.Provider) view.ProviderView {
@@ -187,7 +187,10 @@ func (d *detailPane) charts(p store.Provider) string {
 	return fmt.Sprintf("成功率  [blue]%s[-]\n耗时    [blue]%s[-]\n", ok, lat)
 }
 
-func (d *detailPane) resultsTable(p store.Provider) string {
+// resultsTable renders the paginated rows; v is the same view renderText
+// already computed (PERF2: one ViewOf snapshot per render, no duplicate
+// store reads and no revision-label tearing within a frame).
+func (d *detailPane) resultsTable(p store.Provider, v view.ProviderView) string {
 	rows := d.st.QueryResults(p.ID, d.filters.revisionOf(p), d.filters.source,
 		d.filters.window, pageSize+1, d.cursorSeq(), d.cursorStartedAt())
 	hasMore := len(rows) > pageSize
@@ -205,7 +208,7 @@ func (d *detailPane) resultsTable(p store.Provider) string {
 
 	var b []byte
 	w := func(format string, args ...any) { b = append(b, fmt.Sprintf(format, args...)...) }
-	w("探测记录（%s · %s · %s）\n", d.filters.windowLabel(), revisionLabel(d.filters, d.viewOf(p)), d.filters.sourceLabel())
+	w("探测记录（%s · %s · %s）\n", d.filters.windowLabel(), revisionLabel(d.filters, v), d.filters.sourceLabel())
 	if len(rows) == 0 {
 		w("[gray]暂无记录[white]\n")
 		return string(b)
@@ -238,19 +241,12 @@ func (d *detailPane) resultLine(p store.Provider, res store.Result) string {
 	}
 	errText := ""
 	if res.Error != "" {
-		errText = "  " + tview.Escape(scrubKey(res.Error, p.APIKey))
+		errText = "  " + tview.Escape(view.ScrubSecret(res.Error, p.APIKey))
 	}
 	return fmt.Sprintf("%s %s [%s]%-10s[-] %9s %9s %5s %11s%s",
 		time.UnixMilli(res.StartedAt).Format("01-02 15:04:05"), src, statusColor,
 		view.StatusText(res.Status), fmtMs(res.TTFTMs), fmtMs(&res.TotalMs),
 		fmtInt(res.HTTPStatus), tokens, errText)
-}
-
-func scrubKey(s, secret string) string {
-	if secret == "" {
-		return s
-	}
-	return strings.ReplaceAll(s, secret, "***")
 }
 
 // cursorSeq/cursorStartedAt adapt pageCursor to QueryResults' pointer args.

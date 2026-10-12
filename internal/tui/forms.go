@@ -60,11 +60,18 @@ func openForm(app *tview.Application, deps Deps, editID int, onDone func()) *for
 
 	// New-provider defaults come from the tool settings (10-10-settings-pack);
 	// editing prefills the object itself.
-	f := view.ProviderForm{Prompt: view.DefaultPrompt, Enabled: true}
-	if d := deps.Store.GetSettings().Defaults; true {
-		f.MaxTokens, f.IntervalSec = d.MaxTokens, d.IntervalSec
-		f.TimeoutSec, f.TTFTTimeoutMs, f.TTFTSlowMs = d.TimeoutSec, d.TTFTTimeoutMs, d.TTFTSlowMs
-		f.Enabled, f.IncludeUsage = d.Enabled, d.IncludeUsage
+	def := deps.Store.GetSettings().Defaults
+	f := view.ProviderForm{
+		Prompt: view.DefaultPrompt,
+		// The API key entry keeps the simplified TUI rule 空着=保持、输入=替换;
+		// a fresh add starts with the defaults' enable/usage switches.
+		MaxTokens:     def.MaxTokens,
+		IntervalSec:   def.IntervalSec,
+		TimeoutSec:    def.TimeoutSec,
+		TTFTTimeoutMs: def.TTFTTimeoutMs,
+		TTFTSlowMs:    def.TTFTSlowMs,
+		Enabled:       def.Enabled,
+		IncludeUsage:  def.IncludeUsage,
 	}
 	apiKey := ""
 	title := "新建监测对象"
@@ -117,39 +124,49 @@ func openForm(app *tview.Application, deps Deps, editID int, onDone func()) *for
 }
 
 // arrowNavigation maps Up = previous element, Down = next element. The wrap
-// matches Tab/Backtab semantics (tview wraps at both ends). focusIndex()
-// reports -1 until an element truly holds focus, so fall back to the form's
-// focusedElement bookkeeping (SetFocus target).
+// matches Tab/Backtab semantics (tview wraps at both ends). Shared by the
+// provider form and the settings form (review fixpack S3) — the single owner
+// lives in forms.go below.
 func (d *formDialog) arrowNavigation(ev *tcell.EventKey) *tcell.EventKey {
-	if ev.Key() != tcell.KeyUp && ev.Key() != tcell.KeyDown {
-		return ev
+	return formArrowNav(d.form)(ev)
+}
+
+// formArrowNav returns an input-capture that turns Up/Down into form-element
+// navigation on any tview.Form. tview Forms only move between fields on
+// Tab/Backtab (InputField swallows Up/Down as a no-op without suggestions);
+// this wires the near-universal TUI convention. When no element truly holds
+// focus yet (fresh form, focusIndex -1) the first element is treated as
+// current, so Up/Down always lands somewhere instead of passing through.
+func formArrowNav(form *tview.Form) func(*tcell.EventKey) *tcell.EventKey {
+	return func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Key() != tcell.KeyUp && ev.Key() != tcell.KeyDown {
+			return ev
+		}
+		item, button := form.GetFocusedItemIndex()
+		current := -1
+		if item >= 0 {
+			current = item
+		} else if button >= 0 {
+			current = form.GetFormItemCount() + button
+		}
+		total := form.GetFormItemCount() + form.GetButtonCount()
+		if current < 0 {
+			// No element has real focus yet (form not drawn); tview still
+			// tracks the intended element internally. Treat element 0 as
+			// current so the first Up/Down focuses a concrete element.
+			current = 0
+		}
+		if total == 0 {
+			return ev
+		}
+		if ev.Key() == tcell.KeyDown {
+			current = (current + 1) % total
+		} else {
+			current = (current - 1 + total) % total
+		}
+		form.SetFocus(current)
+		return nil
 	}
-	item, button := d.form.GetFocusedItemIndex()
-	current := -1
-	if item >= 0 {
-		current = item
-	} else if button >= 0 {
-		current = d.form.GetFormItemCount() + button
-	}
-	total := d.form.GetFormItemCount() + d.form.GetButtonCount()
-	if current < 0 {
-		// No element has real focus yet (form not drawn); the tview Form
-		// still tracks the intended element in focusedElement. That field
-		// is private, so approximate: the element tview will focus on the
-		// next Tab — treat the intended one as current by probing
-		// SetFocus(0)'s bookkeeping via its observable effect below.
-		current = 0
-	}
-	if total == 0 {
-		return ev
-	}
-	if ev.Key() == tcell.KeyDown {
-		current = (current + 1) % total
-	} else {
-		current = (current - 1 + total) % total
-	}
-	d.form.SetFocus(current)
-	return nil
 }
 
 // centerRows centers the inner content vertically.
@@ -264,8 +281,11 @@ func (d *formDialog) close() {
 }
 
 // confirmDelete asks before deleting (design.md §7: d = 编辑/n 新建/d 删除,
-// delete gets a confirmation modal).
-func confirmDelete(app *tview.Application, deps Deps, id int, onDone func()) *tview.Modal {
+// delete gets a confirmation modal). tview's Modal done contract: button i
+// fires done(i, label), Esc fires done(-1, "") — both cancel paths (取消
+// button, Esc) must dismiss the modal without touching the store (review
+// fixpack #2); only idx==0 deletes.
+func confirmDelete(app *tview.Application, deps Deps, id int, onDone, onCancel func()) *tview.Modal {
 	p, ok := deps.Store.GetProvider(id)
 	name := strconv.Itoa(id)
 	if ok {
@@ -274,15 +294,26 @@ func confirmDelete(app *tview.Application, deps Deps, id int, onDone func()) *tv
 	modal := tview.NewModal().
 		SetText("删除监测对象「" + tview.Escape(name) + "」？历史记录将一并删除。").
 		AddButtons([]string{"删除", "取消"})
-	modal.SetDoneFunc(func(idx int, label string) {
-		if idx == 0 { // 删除
+	modal.SetDoneFunc(deleteDoneFunc(deps, id, onDone, onCancel))
+	return modal
+}
+
+// deleteDoneFunc is the confirm modal's done handler, split out so the
+// button/Esc matrix can be tested without a screen.
+func deleteDoneFunc(deps Deps, id int, onDone, onCancel func()) func(idx int, label string) {
+	return func(idx int, label string) {
+		switch idx {
+		case 0: // 删除
 			if deps.Mutator != nil {
 				deps.Mutator.Remove(id) // cancels the in-flight probe first
 			}
 			if err := deps.Store.DeleteProvider(id); err == nil && onDone != nil {
 				onDone()
 			}
+		default: // 1 = 取消 button, -1 = Esc — close without touching the store
+			if onCancel != nil {
+				onCancel()
+			}
 		}
-	})
-	return modal
+	}
 }

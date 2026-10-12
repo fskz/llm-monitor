@@ -22,6 +22,13 @@ type overviewPane struct {
 	selected int
 	// onChange fires with the newly selected provider id.
 	onChange func(id int)
+	// refreshing guards against re-entrant selection events. refresh() clears
+	// the list (currentItem resets to 0) and restores the cursor with
+	// SetCurrentItem — which synchronously fires the changed callback →
+	// onChange → redrawLocked → refresh … With ≥2 providers this recursed
+	// without bound (review fixpack #1, P0). While a programmatic refresh is
+	// restoring the cursor the callback is not a user selection: ignore it.
+	refreshing bool
 }
 
 // streakThreshold is the 连败 badge threshold from the tool settings
@@ -39,6 +46,12 @@ func newOverviewPane(st *store.Store, eng view.EngineStatus, onChange func(int))
 
 // refresh rebuilds the list from the store, restoring the selection by id.
 func (o *overviewPane) refresh() {
+	// Programmatic cursor restoration must not be mistaken for a user
+	// selection (see the refreshing field docs). The flag also makes a
+	// refresh triggered from inside the changed callback terminate.
+	o.refreshing = true
+	defer func() { o.refreshing = false }()
+
 	providers := o.st.GetProviders()
 
 	if o.selected == -1 && len(providers) > 0 {
@@ -64,6 +77,9 @@ func (o *overviewPane) refresh() {
 
 	o.list.Clear()
 	o.ids = o.ids[:0]
+	// One settings read for the whole loop (PERF3): streakThreshold takes the
+	// global store lock per call, and the threshold cannot change mid-refresh.
+	threshold := o.streakThreshold()
 	for _, p := range providers {
 		v := view.ViewOf(o.st, o.eng, p)
 		// tview List has no per-item color API; the badge is colored through
@@ -75,7 +91,7 @@ func (o *overviewPane) refresh() {
 		}
 		// Streak badge at the settings threshold (10-10-settings-pack R4):
 		// "真挂了" next to the single-result status.
-		if v.StreakFail >= o.streakThreshold() {
+		if v.StreakFail >= threshold {
 			item += " [red::b]连败 " + strconv.Itoa(v.StreakFail) + "[-]"
 		}
 		o.list.AddItem(item, secondary, 0, nil)
@@ -100,6 +116,9 @@ func (o *overviewPane) selectedID() int { return o.selected }
 // wireSelection bridges tview list selection events to o.selected/onChange.
 func (o *overviewPane) wireSelection() {
 	o.list.SetChangedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		if o.refreshing {
+			return // programmatic cursor restore, not a user selection (#1)
+		}
 		if index < 0 || index >= len(o.ids) {
 			return
 		}

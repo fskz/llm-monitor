@@ -11,7 +11,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -53,7 +52,10 @@ type ui struct {
 	right      *tview.Flex
 	pages      *tview.Pages // main layout + modal overlays (forms, confirm)
 
-	mu sync.Mutex // guards selectedID transfer between panes
+	// quit is closed once the event loop is down (Run returned); background
+	// goroutines consult it before QueueUpdateDraw, which would otherwise
+	// block forever on a dead loop (review fixpack #5).
+	quit chan struct{}
 }
 
 // Run blocks the main goroutine on the TUI event loop and returns when the
@@ -79,7 +81,7 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 		app.SetScreen(screen)
 	}
 
-	u := &ui{app: app, deps: deps}
+	u := &ui{app: app, deps: deps, quit: make(chan struct{})}
 	u.detail = newDetailPane(deps.Store, engineOrNil(deps.Engine))
 	u.overview = newOverviewPane(deps.Store, engineOrNil(deps.Engine), u.selectProvider)
 	u.web = newWebPanel(deps)
@@ -124,10 +126,12 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 			select {
 			case <-ctx.Done():
 				return
+			case <-u.quit:
+				return // the event loop is down; a queued update would hang
 			case <-refresh.C:
 				// 5s re-read of the store (R3): selection and scroll survive
 				// because both panes restore by id/offset inside redraw.
-				app.QueueUpdateDraw(func() {
+				u.queueDraw(func() {
 					u.redrawLocked()
 				})
 			}
@@ -142,11 +146,17 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 			app.Stop()
 			select {
 			case <-done:
+				close(u.quit) // the event loop is down (review fixpack #5)
 				return ctx.Err()
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
 	case err := <-done:
+		// The loop is down for good either way: user quit (nil) or the
+		// headless fallback (screen-init error). Closing u.quit releases the
+		// refresh loop and any pending manual-probe update goroutine — a
+		// QueueUpdateDraw on the dead loop would block forever.
+		close(u.quit)
 		if err != nil {
 			log.Printf("tui: 无法初始化终端界面（%v）；以无界面模式继续运行，等待退出信号", err)
 			<-ctx.Done()
@@ -154,6 +164,20 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 		}
 		return nil // user quit through the TUI
 	}
+}
+
+// queueDraw runs f on the app goroutine unless the event loop is already
+// down. QueueUpdateDraw blocks on the loop's acknowledgment; after Run has
+// returned there is nobody to acknowledge, so the caller would hang forever
+// (review fixpack #5). A nil quit channel (bare ui in tests) never reads as
+// closed and the update goes through normally.
+func (u *ui) queueDraw(f func()) {
+	select {
+	case <-u.quit:
+		return
+	default:
+	}
+	u.app.QueueUpdateDraw(f)
 }
 
 // engineOrNil normalizes a typed-nil EngineAPI to untyped nil so view.ViewOf
@@ -230,15 +254,11 @@ func (u *ui) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 			u.toggleWeb()
 			return nil
 		case keySettings:
-			if !u.modalOpen() {
-				u.openSettingsModal()
-				return nil
-			}
+			u.openSettingsModal()
+			return nil
 		case keyToggle:
-			if !u.modalOpen() {
-				u.toggleCurrent()
-				return nil
-			}
+			u.toggleCurrent()
+			return nil
 		}
 	}
 	return ev
@@ -254,7 +274,7 @@ func (u *ui) overviewKeys(ev *tcell.EventKey) *tcell.EventKey {
 				return ev // a modal owns the keyboard
 			}
 			id := u.overview.selectedID()
-			if (ev.Rune() == keyNew || id > 0) && ev.Rune() == keyNew {
+			if ev.Rune() == keyNew {
 				u.openFormModal(0)
 				return nil
 			}
@@ -289,10 +309,13 @@ func (u *ui) openFormModal(id int) {
 
 // openDeleteModal mounts the delete confirmation over the UI.
 func (u *ui) openDeleteModal(id int) {
-	modal := confirmDelete(u.app, u.deps, id, func() {
-		u.dismissModal()
-		u.afterMutation()
-	})
+	modal := confirmDelete(u.app, u.deps, id,
+		func() { // confirmed delete
+			u.dismissModal()
+			u.afterMutation()
+		},
+		u.dismissModal, // cancel (取消 button / Esc) — just close, store untouched
+	)
 	formDismissHook = u.dismissModal // Esc/route-out reuses the same dismiss
 	u.pages.AddAndSwitchToPage("modal", modal, true)
 }

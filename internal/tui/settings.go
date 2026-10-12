@@ -22,7 +22,7 @@ func (u *ui) openSettingsModal() {
 
 	form := tview.NewForm().SetButtonsAlign(tview.AlignCenter)
 	form.AddInputField("max_tokens", strconv.Itoa(st.Defaults.MaxTokens), 10, nil, nil)
-	form.AddInputField("探测间隔秒（0=仅手动，≥60）", intervalStr(st.Defaults.IntervalSec), 10, nil, nil)
+	form.AddInputField("探测间隔秒（0=仅手动，≥60）", strconv.Itoa(st.Defaults.IntervalSec), 10, nil, nil)
 	form.AddInputField("总超时秒", strconv.Itoa(st.Defaults.TimeoutSec), 10, nil, nil)
 	form.AddInputField("首内容超时 ms", strconv.Itoa(st.Defaults.TTFTTimeoutMs), 10, nil, nil)
 	form.AddInputField("慢阈值 ms", strconv.Itoa(st.Defaults.TTFTSlowMs), 10, nil, nil)
@@ -76,7 +76,7 @@ func (u *ui) openSettingsModal() {
 	form.AddButton("保存", submit)
 	form.AddButton("取消", func() { u.dismissModal() })
 	form.SetCancelFunc(func() { u.dismissModal() })
-	form.SetInputCapture(arrowNavCapture(form))
+	form.SetInputCapture(formArrowNav(form))
 
 	inner := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(tview.NewTextView().SetDynamicColors(true).SetText("[::b]全局设置[-]"), 1, 0, false).
@@ -97,9 +97,6 @@ func (u *ui) openSettingsModal() {
 	u.pages.AddAndSwitchToPage("modal", dlg, true)
 }
 
-// intervalStr renders 0 explicitly (manual-only is a valid default).
-func intervalStr(sec int) string { return strconv.Itoa(sec) }
-
 // atoiDefault parses or returns fallback on error/empty.
 func atoiDefault(s string, fallback int) int {
 	if s == "" {
@@ -110,31 +107,4 @@ func atoiDefault(s string, fallback int) int {
 		return fallback
 	}
 	return n
-}
-
-// arrowNavCapture reuses the provider-form Up/Down navigation on any form.
-func arrowNavCapture(form *tview.Form) func(*tcell.EventKey) *tcell.EventKey {
-	return func(ev *tcell.EventKey) *tcell.EventKey {
-		if ev.Key() != tcell.KeyUp && ev.Key() != tcell.KeyDown {
-			return ev
-		}
-		item, button := form.GetFocusedItemIndex()
-		current := -1
-		if item >= 0 {
-			current = item
-		} else if button >= 0 {
-			current = form.GetFormItemCount() + button
-		}
-		total := form.GetFormItemCount() + form.GetButtonCount()
-		if current < 0 || total == 0 {
-			return ev
-		}
-		if ev.Key() == tcell.KeyDown {
-			current = (current + 1) % total
-		} else {
-			current = (current - 1 + total) % total
-		}
-		form.SetFocus(current)
-		return nil
-	}
 }
