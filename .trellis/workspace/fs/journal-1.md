@@ -170,3 +170,29 @@ metrics-pack 任务交付四项聚合层指标:store/quantiles.go 四个 Compute
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: dev..master 全量审查与修复包（review-fixpack）
+<!-- trellis-session: v=2 fp=a8ac692f02d171a2 -->
+
+**Date**: 2026-10-12
+**Task**: dev..master 全量审查与修复包（review-fixpack）
+**Branch**: `dev`
+
+### Summary
+
+对 dev..master 全部差异（75 文件）执行多路并行代码审查并亲自验证发现，随后创建 10-12-review-fixpack 任务分三批落地全部修复：P0 TUI 概览递归栈溢出（refreshing 重入守卫）、P1 删除模态无取消路径（tview done(-1)/done(1) 契约）与 web 表单 step-mismatch 阻塞、P2 僵尸进程/goroutine 泄漏/报告连败阈值硬编码/settings 错误耦合、P3 报告文案口径；简化项含 view.ValidateSettings 校验单一所有者、FmtMs 系格式化收敛、scrubKey→view.ScrubSecret、formArrowNav 合一、死代码清理；性能项 store.MetricsPack 单快照聚合（等价性由 TestMetricsPackEquivalence 锁定）替换 ViewOf/handleStats/RenderReport/statsBlock 的逐指标调用。go vet/test -race 全绿，验收 A1-A8 经 trellis-check 逐条通过；spec 沉淀 tview 回调重入、MetricsPack 契约、校验所有者三条约定。已知遗留：web appSettings 跨端陈旧（#9）、JS 格式化第三份拷贝（out of scope）。归档 review-fixpack/settings-pack/bootstrap-guidelines 三任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1a0ebbe` | fix(view,store,server): review fixpack batch 1 — single-owner validation, format unification, one-snapshot aggregation |
+| `6d9d5d9` | fix(tui): review fixpack batch 2 — recursion guard, modal cancel, leaks, dedup |
+| `a062d7a` | fix(web): review fixpack batch 3 — step-mismatch unblock, settings decoupling, defaults merge |
+| `532049c` | perf(tui): migrate the detail statsBlock to the one-snapshot MetricsPack |
+| `fd8e55d` | docs(spec): tview callback re-entry, MetricsPack contract, settings-validation owner |
+
+### Status
+
+[OK] **Completed**
