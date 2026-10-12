@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"os"
 	"strconv"
 	"strings"
 
@@ -9,6 +8,7 @@ import (
 	"github.com/rivo/tview"
 
 	"llm-monitor/internal/store"
+	"llm-monitor/internal/view"
 )
 
 // Settings modal (10-10-settings-pack, PRD R2/R3/R4/R5). Mirrors the web
@@ -61,7 +61,7 @@ func (u *ui) openSettingsModal() {
 			StreakAlert: atoiDefault(get("连败提醒阈值（≥2）"), 0),
 			ReportDir:   get("报告导出目录（空=默认）"),
 		}
-		if msg2 := validateSettings(next); msg2 != "" {
+		if msg2 := view.ValidateSettings(next); msg2 != "" {
 			msg.SetText("[red]" + tview.Escape(msg2) + "[-]")
 			return
 		}
@@ -112,28 +112,6 @@ func atoiDefault(s string, fallback int) int {
 	return n
 }
 
-// validateSettings mirrors the server-side rules (one wording set).
-func validateSettings(s store.Settings) string {
-	d := s.Defaults
-	switch {
-	case s.StreakAlert < 2:
-		return "连败提醒阈值需至少为 2"
-	case d.MaxTokens <= 0:
-		return "max_tokens 必须大于 0"
-	case d.TimeoutSec <= 0:
-		return "总超时必须大于 0"
-	case d.IntervalSec != 0 && d.IntervalSec < 60:
-		return "探测间隔为 0（仅手动）或至少 1 分钟"
-	case !(d.TTFTSlowMs > 0 && d.TTFTSlowMs < d.TTFTTimeoutMs):
-		return "需要 0 < 慢阈值 < 首内容超时"
-	case d.TTFTTimeoutMs > d.TimeoutSec*1000:
-		return "首内容超时不能大于总超时"
-	case s.ReportDir != "" && !dirWritable(s.ReportDir):
-		return "报告目录不可写或无法创建"
-	}
-	return ""
-}
-
 // arrowNavCapture reuses the provider-form Up/Down navigation on any form.
 func arrowNavCapture(form *tview.Form) func(*tcell.EventKey) *tcell.EventKey {
 	return func(ev *tcell.EventKey) *tcell.EventKey {
@@ -160,18 +138,3 @@ func arrowNavCapture(form *tview.Form) func(*tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 }
-
-// dirWritable reports whether dir exists or can be created (same rule as
-// the server-side validation).
-func dirWritable(dir string) bool {
-	if err := osMkdirAll(dir, 0o755); err != nil {
-		return false
-	}
-	info, err := osStat(dir)
-	return err == nil && info.IsDir()
-}
-
-var (
-	osMkdirAll = os.MkdirAll
-	osStat     = os.Stat
-)

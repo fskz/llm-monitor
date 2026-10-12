@@ -6,12 +6,14 @@ import (
 	"github.com/rivo/tview"
 
 	"llm-monitor/internal/store"
+	"llm-monitor/internal/view"
 )
 
 // Display formatting for the detail pane. The wording mirrors the web panel
-// helpers (web/app.js fmtPct/fmtMs/fmtTPS) and the report helpers in
-// internal/view/report.go: nil percentages/durations render "—" and empty
-// sample sets render "暂无样本", never 0%/0 ms (§9.2 null-vs-0 discipline).
+// helpers (web/app.js fmtPct/fmtMs/fmtTPS) and delegates to the single Go
+// owners in internal/view (review fixpack S8): nil percentages/durations
+// render "—" and empty sample sets render "暂无样本", never 0%/0 ms
+// (§9.2 null-vs-0 discipline).
 
 func fmtPct(p *float64) string {
 	if p == nil {
@@ -20,47 +22,18 @@ func fmtPct(p *float64) string {
 	return strconv.FormatFloat(*p, 'f', 2, 64) + "%"
 }
 
-func fmtMs(v *int64) string {
-	if v == nil {
-		return "—"
-	}
-	if *v < 1000 {
-		return strconv.FormatInt(*v, 10) + " ms"
-	}
-	return strconv.FormatFloat(float64(*v)/1000, 'f', 2, 64) + " s"
-}
-
-func fmtTPS(p *float64) string {
-	if p == nil {
-		return "—"
-	}
-	return strconv.FormatFloat(*p, 'f', 1, 64) + " tok/s"
-}
+// fmtMs and friends are thin delegates onto view's exported owners — one
+// implementation, no local duplicate bodies.
+func fmtMs(v *int64) string    { return view.FmtMs(v) }
+func fmtTPS(p *float64) string { return view.FmtTPS(p) }
 
 // fmtTPOT renders the reciprocal view of decode TPS (ms per output token)
 // over the same evidence — one number, two readings.
-func fmtTPOT(decodeTPS *float64) string {
-	if decodeTPS == nil || *decodeTPS <= 0 {
-		return "—"
-	}
-	return strconv.FormatFloat(1000 / *decodeTPS, 'f', 1, 64) + " ms/tok"
-}
+func fmtTPOT(decodeTPS *float64) string { return view.FmtTPOT(decodeTPS) }
 
 // fmtFlip renders the flip ("jitter") rate with the same qualitative bands
 // as the web panel: <5% 稳定 / 5-20% 波动 / >20% 频繁翻转.
-func fmtFlip(r *float64) string {
-	if r == nil {
-		return "—"
-	}
-	band := "稳定"
-	switch {
-	case *r > 0.2:
-		band = "频繁翻转"
-	case *r >= 0.05:
-		band = "波动"
-	}
-	return strconv.FormatFloat(*r*100, 'f', 1, 64) + "%（" + band + "）"
-}
+func fmtFlip(r *float64) string { return view.FmtFlip(r) }
 
 func fmtInt(p *int) string {
 	if p == nil {

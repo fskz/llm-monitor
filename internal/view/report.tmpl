@@ -57,7 +57,7 @@ footer { margin-top:28px; color:#9aa0a6; font-size:11.5px; border-top:1px solid 
 
 <h2>监测状态</h2>
 {{if .View.LastProbe}}
-<span class="badge {{.MonitorClass}}">{{.MonitorText}}</span>{{if and (eq .MonitorClass "ok") .SlowTTFT}}<span class="slow">可用，但首内容较慢</span>{{end}}{{if ge .View.StreakFail 2}}<span class="badge fail">连败 {{.View.StreakFail}}</span>{{end}}
+<span class="badge {{.MonitorClass}}">{{.MonitorText}}</span>{{if and (eq .MonitorClass "ok") .SlowTTFT}}<span class="slow">可用，但首内容较慢</span>{{end}}{{if ge .View.StreakFail .StreakAlert}}<span class="badge fail">连败 {{.View.StreakFail}}</span>{{end}}
 <div class="meta" style="margin-top:6px">最近有效定时探测：{{statusTextOf .View.LastProbe.Status}} · {{fmtTimeOf .View.LastProbe.FinishedAt}} · TTFT {{fmtMsOf .View.LastProbe.TTFTMs}} · 总耗时 {{fmtMsOf .View.LastProbe.TotalMs}}</div>
 {{else}}
 <span class="badge {{.MonitorClass}}">{{.MonitorText}}</span>
@@ -90,7 +90,7 @@ footer { margin-top:28px; color:#9aa0a6; font-size:11.5px; border-top:1px solid 
   <div class="card"><div class="v">{{fmtFlipOf .Stats.FlipRate}}</div><div class="l">抖动（结果翻转率）</div></div>
   {{if .Stats.ErrorsByKind}}<div class="card wide"><div class="v">{{fmtErrKinds .Stats.ErrorsByKind}}</div><div class="l">错误分布</div></div>{{end}}
 </div></div>
-{{if eq .Stats.Samples 0}}<div class="note" style="margin-top:8px">暂无样本：该时间窗与目标版本下没有符合条件的定时探测记录，比例留空不显示 0%。</div>{{end}}
+{{if eq .Stats.Samples 0}}<div class="note" style="margin-top:8px">暂无样本：该时间窗、目标版本与来源筛选下没有符合条件的探测记录，比例留空不显示 0%。</div>{{end}}
 
 <h2>成功率趋势</h2>
 {{.OKChart}}
@@ -114,7 +114,7 @@ footer { margin-top:28px; color:#9aa0a6; font-size:11.5px; border-top:1px solid 
 {{end}}
 
 <footer>
-由 llm-monitor 本地面板导出的时点快照 · 统计口径与面板一致：分母为已完成、非主动取消的定时探测；手动与取消记录仅列示，不计入比例 · 本报告不包含 API Key 与输出片段。
+由 llm-monitor 本地面板导出的时点快照 · 统计口径与面板一致：分母为已完成、非主动取消的探测，来源筛选决定哪些样本计入比例；主动取消仅列示，不计入比例 · 本报告不包含 API Key 与输出片段。
 </footer>
 
 </body>

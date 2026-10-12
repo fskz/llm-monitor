@@ -105,10 +105,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sv := view.StatsViewFrom(s.st.Stats(p.ID, rev, window, source))
-	sv.AvgTTFTMs, sv.AvgTotalMs = s.st.AvgOnOK(p.ID, rev, window, source)
-	sv.AvgDecodeTPS, sv.AvgPrefillTPS = s.st.AvgThroughput(p.ID, rev, window, source)
-	sv.FillMetricsPack(s.st, p.ID, rev, window, source)
+	// PERF1 (10-12-review-fixpack): one snapshot, one filter pass — the
+	// per-metric methods returned byte-identical values at six snapshots.
+	sv := view.StatsViewFromPack(s.st.MetricsPack(p.ID, rev, window, source))
 	writeJSON(w, http.StatusOK, sv)
 }
 

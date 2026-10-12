@@ -33,11 +33,11 @@ var reportTmpl = template.Must(template.New("report").Funcs(reportTmplFuncs).Par
 var reportTmplFuncs = template.FuncMap{
 	"statusTextOf":  StatusText,
 	"fmtTimeOf":     func(ms int64) string { return time.UnixMilli(ms).Format("2006-01-02 15:04:05") },
-	"fmtMsOf":       fmtMsReport,
+	"fmtMsOf":       FmtMs,
 	"fmtPctOf":      func(p *float64) string { return pctOrDash(p) },
-	"fmtTPSOf":      func(p *float64) string { return tpsOrDash(p) },
-	"fmtTPOTOf":     tpotOrDash,
-	"fmtFlipOf":     flipOrDash,
+	"fmtTPSOf":      FmtTPS,
+	"fmtTPOTOf":     FmtTPOT,
+	"fmtFlipOf":     FmtFlip,
 	"fmtErrKinds":   errKindsText,
 	"reportMaxRows": func() int { return ReportMaxRows },
 }
@@ -49,25 +49,27 @@ func pctOrDash(p *float64) string {
 	return fmt.Sprintf("%.2f%%", *p)
 }
 
-func tpsOrDash(p *float64) string {
+// FmtTPS renders a throughput average (review fixpack S8: view is the single
+// Go owner; the TUI delegates).
+func FmtTPS(p *float64) string {
 	if p == nil {
 		return "—"
 	}
 	return fmt.Sprintf("%.1f tok/s", *p)
 }
 
-// tpotOrDash renders the reciprocal view of decode TPS (ms per output
+// FmtTPOT renders the reciprocal view of decode TPS (ms per output
 // token) — the same evidence, read the other way.
-func tpotOrDash(decodeTPS *float64) string {
+func FmtTPOT(decodeTPS *float64) string {
 	if decodeTPS == nil || *decodeTPS <= 0 {
 		return "—"
 	}
 	return fmt.Sprintf("%.1f ms/tok", 1000 / *decodeTPS)
 }
 
-// flipOrDash renders the flip ("jitter") rate with the qualitative bands
+// FmtFlip renders the flip ("jitter") rate with the qualitative bands
 // shared with the panel/TUI: <5% 稳定 / 5-20% 波动 / >20% 频繁翻转.
-func flipOrDash(r *float64) string {
+func FmtFlip(r *float64) string {
 	if r == nil {
 		return "—"
 	}
@@ -111,10 +113,14 @@ type reportRow struct {
 }
 
 type reportData struct {
-	GeneratedAt  string
-	Filters      string
-	TargetSnap   string
-	MonitorText  string
+	GeneratedAt string
+	Filters     string
+	TargetSnap  string
+	MonitorText string
+	// StreakAlert is the effective 连败 badge threshold from the tool
+	// settings (GetSettings already falls back <2 to the default 2, same
+	// rule as the panel/TUI cards — review fixpack #6).
+	StreakAlert  int
 	MonitorClass string
 	SlowTTFT     bool
 	View         ProviderView
@@ -158,8 +164,8 @@ func RenderReport(w io.Writer, st *store.Store, eng EngineStatus, p store.Provid
 			ResultIcon: icon,
 			StatusText: StatusText(res.Status),
 			RowClass:   rowClassOf(res.Status),
-			TTFT:       fmtMsReport(res.TTFTMs),
-			Total:      fmtMsReport(&res.TotalMs),
+			TTFT:       FmtMs(res.TTFTMs),
+			Total:      FmtMs(&res.TotalMs),
 			HTTP:       derefIntStr(res.HTTPStatus),
 			Tokens:     tokens,
 			// Defense in depth: rows may come from records that bypassed
@@ -170,11 +176,9 @@ func RenderReport(w io.Writer, st *store.Store, eng EngineStatus, p store.Provid
 	}
 
 	// The report's stats follow the report's own source parameter
-	// (2026-10-10: previously always scheduled-only).
-	stats := StatsViewFrom(st.Stats(p.ID, rev, window, source))
-	stats.FillMetricsPack(st, p.ID, rev, window, source)
-	stats.AvgTTFTMs, stats.AvgTotalMs = st.AvgOnOK(p.ID, rev, window, source)
-	stats.AvgDecodeTPS, stats.AvgPrefillTPS = st.AvgThroughput(p.ID, rev, window, source)
+	// (2026-10-10: previously always scheduled-only). PERF1
+	// (10-12-review-fixpack): one snapshot for the whole aggregate.
+	stats := StatsViewFromPack(st.MetricsPack(p.ID, rev, window, source))
 	buckets := st.Series(p.ID, rev, window, source)
 
 	data := reportData{
@@ -182,6 +186,9 @@ func RenderReport(w io.Writer, st *store.Store, eng EngineStatus, p store.Provid
 		Filters:     fmt.Sprintf("时间窗 %s · 目标版本 %s · 来源 %s", windowLabel(window), revisionLabel(p, rev), sourceLabel(source)),
 		Rows:        rows,
 		Truncated:   truncated,
+		// Effective badge threshold from settings (fixpack #6: previously
+		// hardcoded 2 in the template, drifting from the panel/TUI cards).
+		StreakAlert: st.GetSettings().StreakAlert,
 	}
 	// Reuse the overview view for config summary, masked key slot and the
 	// revision-scoped last scheduled probe; its embedded 24h stats are
@@ -248,7 +255,10 @@ func derefIntStr(p *int) string {
 	return strconv.Itoa(*p)
 }
 
-func fmtMsReport(ms *int64) string {
+// FmtMs renders a duration: milliseconds below 1s, seconds (2 decimals)
+// above. Review fixpack S8: view is the single Go owner of the wording —
+// the TUI delegates.
+func FmtMs(ms *int64) string {
 	if ms == nil {
 		return "—"
 	}

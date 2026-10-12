@@ -247,6 +247,41 @@ func TestReportContainsTPOT(t *testing.T) {
 	}
 }
 
+// The 连败 badge follows the settings threshold instead of a hardcoded 2
+// (review fixpack #6, A6): streak_alert=5 hides a 3-failure run,
+// streak_alert=2 shows it — same rule as the panel/TUI cards.
+func TestReportStreakBadgeFollowsSettings(t *testing.T) {
+	st := newTestStore(t)
+	p := seedProvider(t, st, nil)
+	now := time.Now().UnixMilli()
+	for i := 0; i < 3; i++ {
+		seedResult(t, st, p, "http_error", now-int64(i)*60_000, nil)
+	}
+
+	def := store.DefaultSettings()
+	// Threshold 5 > streak 3 → no badge.
+	high := def
+	high.StreakAlert = 5
+	if err := st.SaveSettings(high); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	body := renderReportFixture(t, st, p, p.Revision, store.SourceAll, 24*time.Hour)
+	if strings.Contains(body, "连败 3") {
+		t.Fatal("streak 3 must not badge at streak_alert=5")
+	}
+
+	// Threshold 2 ≤ streak 3 → badge shown.
+	low := def
+	low.StreakAlert = 2
+	if err := st.SaveSettings(low); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	body = renderReportFixture(t, st, p, p.Revision, store.SourceAll, 24*time.Hour)
+	if !strings.Contains(body, "连败 3") {
+		t.Fatal("streak 3 must badge at streak_alert=2")
+	}
+}
+
 // Metrics-pack cards land in the report: P50/P95, flip rate band, and the
 // error breakdown row for a mixed fixture.
 func TestReportMetricsPack(t *testing.T) {

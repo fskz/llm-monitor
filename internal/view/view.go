@@ -8,7 +8,8 @@
 //   - the status label tables (StatusText / MonitorText; web/app.js
 //     STATUS_TEXT / STATUS_META must stay in sync — go-conventions.md
 //     cross-layer rule),
-//   - the provider validation rules with their Chinese messages,
+//   - the provider validation rules with their Chinese messages, and the
+//     tool-level settings validation (ValidateSettings, 10-12 fixpack S1),
 //   - the monitor status ladder of REQUIREMENTS.md §7.2,
 //   - the narrow engine interfaces (EngineAPI, ProviderMutator) both
 //     front ends consume; cmd adapts the concrete engine to them.
@@ -123,13 +124,20 @@ type ProbeView struct {
 // (REQUIREMENTS.md §7.2 priority order), masked key, last scheduled probe
 // and the default-window statistics. eng may be nil.
 func ViewOf(st *store.Store, eng EngineStatus, p store.Provider) ProviderView {
+	// Default overview window: 24h, current revision, scheduled probes —
+	// the overview card is schedule health and does NOT follow the detail
+	// view's source filter (task 10-10-stats-by-source). PERF1
+	// (10-12-review-fixpack): revisions, stats and streaks previously took
+	// one snapshot per metric; the pack computes all three in one pass.
+	mp := st.MetricsPack(p.ID, p.Revision, 24*time.Hour, store.SourceScheduled)
+
 	v := ProviderView{
 		ID:            p.ID,
 		Name:          p.Name,
 		BaseURL:       p.BaseURL,
 		Model:         p.Model,
 		Revision:      p.Revision,
-		Revisions:     st.Revisions(p.ID),
+		Revisions:     mp.Revisions,
 		Prompt:        p.Prompt,
 		MaxTokens:     p.MaxTokens,
 		IntervalSec:   p.IntervalSec,
@@ -164,12 +172,9 @@ func ViewOf(st *store.Store, eng EngineStatus, p store.Provider) ProviderView {
 	}
 
 	v.Status, v.SlowTTFT = monitorStatus(p, v.LastProbe)
-	// Default overview window: 24h, current revision, scheduled probes —
-	// the overview card is schedule health and does NOT follow the detail
-	// view's source filter (task 10-10-stats-by-source).
-	v.Stats = StatsViewFrom(st.Stats(p.ID, p.Revision, 24*time.Hour, store.SourceScheduled))
+	v.Stats = StatsViewFrom(mp.Stats)
 	// Streak badge rides on the same schedule-health view (10-10-metrics-pack).
-	v.StreakFail = st.ComputeStreaks(p.ID, p.Revision, 24*time.Hour, store.SourceScheduled).Fail
+	v.StreakFail = mp.Streaks.Fail
 	return v
 }
 

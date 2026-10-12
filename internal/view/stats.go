@@ -1,8 +1,6 @@
 package view
 
 import (
-	"time"
-
 	"llm-monitor/internal/store"
 )
 
@@ -58,19 +56,27 @@ func StatsViewFrom(st store.Stats) StatsView {
 	}
 }
 
-// FillMetricsPack attaches the metrics-pack aggregates (percentiles, flip
-// rate, error breakdown) computed under the same filter family. Label uses
-// the shared Chinese status table.
-func (v *StatsView) FillMetricsPack(st *store.Store, providerID, revision int, window time.Duration, source string) {
-	p := st.ComputePercentiles(providerID, revision, window, source)
-	v.TTFTP50Ms, v.TTFTP95Ms = p.TTFTP50, p.TTFTP95
-	v.TotalP50Ms, v.TotalP95Ms = p.TotalP50, p.TotalP95
-	v.FlipRate = st.ComputeFlipRate(providerID, revision, window, source)
-	for _, e := range st.ComputeErrorBreakdown(providerID, revision, window, source) {
+// StatsViewFromPack assembles the complete StatsView from a store.MetricsPack
+// — the one-snapshot aggregate of PERF1 (10-12-review-fixpack). Every field
+// is byte-identical to the StatsViewFrom + AvgOnOK + AvgThroughput +
+// FillMetricsPack sequence over the same filter.
+func StatsViewFromPack(mp store.MetricsPack) StatsView {
+	v := StatsViewFrom(mp.Stats)
+	v.AvgTTFTMs = mp.AvgTTFTMs
+	v.AvgTotalMs = mp.AvgTotalMs
+	v.AvgDecodeTPS = mp.AvgDecodeTPS
+	v.AvgPrefillTPS = mp.AvgPrefillTPS
+	v.TTFTP50Ms = mp.Percentiles.TTFTP50
+	v.TTFTP95Ms = mp.Percentiles.TTFTP95
+	v.TotalP50Ms = mp.Percentiles.TotalP50
+	v.TotalP95Ms = mp.Percentiles.TotalP95
+	v.FlipRate = mp.FlipRate
+	for _, e := range mp.ErrorsByKind {
 		v.ErrorsByKind = append(v.ErrorsByKind, ErrorKindView{
 			Status: e.Status, Count: e.Count, Label: StatusText(e.Status),
 		})
 	}
+	return v
 }
 
 // BucketView maps store.SeriesBucket onto the API shape (web/app.js

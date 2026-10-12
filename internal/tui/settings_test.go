@@ -9,26 +9,8 @@ import (
 	"llm-monitor/internal/store"
 )
 
-// Settings validation mirrors the server wording and rules (R2).
-func TestValidateSettings(t *testing.T) {
-	ok := store.Settings{StreakAlert: 3, Defaults: store.SettingsDefaults{MaxTokens: 128, TimeoutSec: 60, TTFTTimeoutMs: 15000, TTFTSlowMs: 3000}}
-	if msg := validateSettings(ok); msg != "" {
-		t.Fatalf("valid settings rejected: %q", msg)
-	}
-	if msg := validateSettings(store.Settings{StreakAlert: 1, Defaults: ok.Defaults}); msg != "连败提醒阈值需至少为 2" {
-		t.Fatalf("streak 1 = %q", msg)
-	}
-	badSlow := ok
-	badSlow.Defaults.TTFTSlowMs = 20000
-	if msg := validateSettings(badSlow); msg == "" {
-		t.Fatal("slow ≥ ttft must fail")
-	}
-	unwritable := ok
-	unwritable.ReportDir = "/proc/nope/deep"
-	if msg := validateSettings(unwritable); msg == "" {
-		t.Fatal("unwritable dir must fail")
-	}
-}
+// Settings validation is owned by view.ValidateSettings (review fixpack S1);
+// its rules and messages are tested in internal/view/settings_test.go.
 
 // Report export honors settings.report_dir; empty falls back to <data>/reports (R5/A6).
 func TestExportReportDirSetting(t *testing.T) {
