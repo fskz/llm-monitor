@@ -2,8 +2,9 @@
 
 > Code-spec extracted from the MVP implementation (task 10-08-mvp-llm-monitor),
 > updated by task 10-09-tui-default (TUI default mode + on-demand web panel),
-> task 10-10 metrics/settings packs, and 10-12-review-fixpack (tview callback
-> re-entry, MetricsPack aggregation, settings-validation single owner).
+> task 10-10 metrics/settings packs, 10-12-review-fixpack (tview callback
+> re-entry, MetricsPack aggregation, settings-validation single owner), and
+> 10-16-tui-command-bar (command bar replaces all rune shortcuts).
 > Authority for judgment rules is `docs/REQUIREMENTS.md` §3; this file records
 > the executable contracts the code now relies on.
 
@@ -40,9 +41,10 @@ cmd/llm-monitor  →  { internal/tui, internal/server }  →  internal/view  →
 ## Process & UI topology (task 10-09)
 
 - One process, one front end at a time: bare `llm-monitor` runs the TUI with
-  ZERO listening ports; the web panel is pulled up from inside the TUI (`w`)
-  and closed explicitly (no idle timeout). No `web` subcommand, no headless
-  mode (PRD decision: unattended operation unsupported).
+  ZERO listening ports; the web panel is pulled up from inside the TUI
+  (`/web` command) and closed explicitly (no idle timeout). No `web`
+  subcommand, no headless mode (PRD decision: unattended operation
+  unsupported).
 - Engine + store live in the same process as the front end; `config.json` /
   `results/*.jsonl` have NO file lock, so two concurrent processes on one
   data dir are forbidden by design — do not add a second entry point without
@@ -146,8 +148,8 @@ protocol_error | empty | aborted | cancelled`
 
 ## Server / security contracts (on-demand web panel)
 
-- The listener exists only while the TUI pulled the panel up (`w`); scan
-  starts at `--port` (default 10110). Binds `127.0.0.1` only. Write
+- The listener exists only while the TUI pulled the panel up (`/web`
+  command); scan starts at `--port` (default 10110). Binds `127.0.0.1` only. Write
   endpoints (POST/PUT/DELETE/probe) reject requests whose `Origin` header
   is present and not `127.0.0.1|localhost|::1` + bound port (403). No CORS
   headers anywhere.
@@ -176,8 +178,9 @@ protocol_error | empty | aborted | cancelled`
 
 - Plain HTML/JS/CSS, no CDN/external URLs, no framework; embedded via
   `//go:embed` in `web/embed.go` (`web.FS()`).
-- The panel is served only by the on-demand web server (TUI `w`); it polls
-  `/api/providers` every 5s (overview) — read-only, never triggers probes.
+- The panel is served only by the on-demand web server (TUI `/web` command);
+  it polls `/api/providers` every 5s (overview) — read-only, never triggers
+  probes.
 - All server-derived strings are HTML-escaped before injection (`esc()`);
   empty-sample states render "暂无样本", never 0%.
 - API JSON shapes are the contract with `internal/view` (ProviderView /
@@ -210,6 +213,47 @@ protocol_error | empty | aborted | cancelled`
   hardcode a status label map in the TUI.
 - Sparkline: `internal/tui/sparkline.go`, max-normalized like the web chart
   math (bucketPath); nil buckets break the bar with `·`.
+
+## Command bar (task 10-16, replaces all rune shortcuts)
+
+- **The command registry is the only action entry**: `internal/tui/command.go`
+  `commands` table (`name`/`args` enum/`desc`/`needSel`/`run`) — the 14
+  commands replaced the old rune keys (q/p/r/w/,/x, n/e/d, 1/2/3/R/S);
+  `keys.go` is gone. `/help` renders FROM the registry. The registry has two
+  static copies that MUST be synced when a command is added/renamed/its args
+  change: `README.md` TUI table and `docs/REQUIREMENTS.md` §4.3.
+- Interaction contract: `/` prefix opens the prefix-filtered menu (never
+  fuzzy); a space after the command name switches the menu to that command's
+  `args` candidates (filter applies to the arg text; do NOT TrimSpace the
+  whole input — the trailing space IS the phase switch); Tab completes the
+  highlighted candidate when the menu is open and rotates focus when closed;
+  Enter prefers the highlighted candidate, else parses the text; bare enum
+  command (`/window`, no space/arg) = cycle fallback; invalid arg flashes the
+  legal set; non-`/` text Enter is swallowed. Commands act on the current
+  selection regardless of focus (`needSel` commands flash when nothing is
+  selected). Tab rotation: 命令框 → list → detail → 命令框; the app-level
+  capture must yield every key while the command bar holds focus.
+- Five red lines (tview pitfalls, verified in both mos-runner and this repo —
+  violating any of these breaks input handling at runtime, tests do not
+  always catch it):
+  1. Inside `InputField.SetChangedFunc` only synchronous `SetText` +
+     redraw — never `QueueUpdateDraw` (the draw races ahead of rune insertion
+     and eats the character).
+  2. The menu is a persistent fixed-height TextView updated via `SetText` —
+     NEVER a Pages overlay (Add/RemovePage inside the event loop breaks the
+     InputHandler delegation chain).
+  3. Tab is intercepted at the control-level capture on the InputField
+     (tview's default treats Tab as field-finished and jumps focus, closing
+     the menu instead of completing).
+  4. Exactly one Focus=true child per Flex layer; move focus with
+     `app.SetFocus` directly onto the primitive.
+  5. The app-level `SetInputCapture` runs BEFORE the focused primitive's —
+     a global handler that consumes Tab/runes starves the command bar.
+- Command-bar text ownership extends the status-text rule: guidance
+  (`view.CommandHintText`/`CmdPlaceholderText`/`CmdHelpGuideText`) and
+  feedback constants (`view.CmdMsg*`) live in `internal/view/command_text.go`;
+  the ONLY sanctioned TUI-side user-visible strings are the registry `desc`
+  fields (same table as the handlers).
 
 ## HTML report export (internal/view/report.go, report.tmpl, report_chart.go)
 
