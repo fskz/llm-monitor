@@ -196,3 +196,27 @@ metrics-pack 任务交付四项聚合层指标:store/quantiles.go 四个 Compute
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: TUI 命令栏:14 条 /xxx 命令替代全部快捷键 + 卡死排查
+<!-- trellis-session: v=2 fp=266406c696bd2d5e -->
+
+**Date**: 2026-10-16
+**Task**: TUI 命令栏:14 条 /xxx 命令替代全部快捷键 + 卡死排查
+**Branch**: `dev`
+
+### Summary
+
+grill-me 拷问锁定 Q1-Q10 后落地 mos-runner 式命令栏:底部全宽三段布局、启动焦点命令框、前缀过滤菜单、/window /revision /source 带枚举参数(带参直选/裸执行循环)、Tab 三站轮转、三处旧 rune 键与 keys.go 退役;文案单源收进 view 层;spec 增命令栏节(五条 tview 红线)。冒烟报告卡死白屏,排查结论:用户跑的是 10-10 旧二进制,含 10-12 已修的列表递归爆栈 bug(tmux 实测 stack overflow 复盘);顺手修焦点陷阱(状态栏提示跟随焦点站点)并重建根目录二进制。教训:冒烟前必须重建 ./llm-monitor。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `163cbb2` | feat(tui): 命令栏替代全部快捷键（14 条 /xxx 命令，3 条带枚举参数） |
+| `30c7d73` | docs: 命令表替代键位表 + spec 命令栏节 |
+| `9319822` | fix(tui): 状态栏提示跟随焦点站点 |
+
+### Status
+
+[OK] **Completed**
