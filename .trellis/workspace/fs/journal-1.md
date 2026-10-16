@@ -220,3 +220,29 @@ grill-me 拷问锁定 Q1-Q10 后落地 mos-runner 式命令栏:底部全宽三�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: 全仓库复审修复包(review-fixpack-2)
+<!-- trellis-session: v=2 fp=6dae2d18fde1deb9 -->
+
+**Date**: 2026-10-16
+**Task**: 全仓库复审修复包(review-fixpack-2)
+**Branch**: `dev`
+
+### Summary
+
+grill-me 四路并行全仓库审查(后端核心/服务端+视图/TUI/Web)共 27 项发现,拷问裁定 25 项修复、8 项归档,四批落地:R1 后端(留存滞后裁剪守 §5.3、SSE keep-alive/未知字段容错、settings 缺段回退对齐 DefaultSettings、ProbeNow recover);R2 服务端+web(详情 404 死循环+单飞守卫、#9 设置搭轮询、保存/克隆在途锁、report_dir trim 前移、报告缓冲渲染、MaxBytesReader、空数组契约);R3 TUI(/page 命令修分页断链+注册表 15 条+三文档联动、菜单跟随滚动、//Enter 误触退出守卫、删除失败关模态红字、/edit 目标消失闪提示、Tab 不抹闪现);R4 契约锁定(fmt* 家族与 DefaultPrompt 双端黄金值+源码钉死,JS fmtTPOT 补守卫)。实现期新发现 F16:GetScrollOffset column 当 row 致详情滚动每 5s 重置,已修入 spec。vet+全量 -race 绿,二进制重建后真机冒烟 A5-A8 由归档动作隐含确认;go-conventions 沉淀六项新契约。8 项归档候选:store 性能/健壮性(超长行续读/in-flight 等待/删除语义/流上限/快照放大)与前端体验(重渲染 diff、exportReport 后台化、queueDraw 竞窗)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cee65b7` | fix(store,probe,engine): review-fixpack-2 batch 1 — retention hysteresis, SSE tolerance, settings fallback |
+| `ed2dfef` | fix(server,web): review-fixpack-2 batch 2 — detail resilience, settings polling, submit locks, hardening |
+| `b0df70c` | fix(tui): review-fixpack-2 batch 3 — /page command, menu follow-scroll, behavior traps |
+| `bff7439` | test(view,web): review-fixpack-2 batch 4 — dual-sync contract lock for fmt family and DefaultPrompt |
+| `369bf79` | docs(spec): review-fixpack-2 sink — /page registry, SSE tolerance, dual-sync fmt lock, tview offset trap |
+
+### Status
+
+[OK] **Completed**

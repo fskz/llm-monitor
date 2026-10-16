@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-10-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~222 | Active |
+| `journal-1.md` | ~248 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-10-16 | 全仓库复审修复包(review-fixpack-2) | `cee65b7`, `ed2dfef`, `b0df70c`, `bff7439`, `369bf79` | `dev` |
 | 8 | 2026-10-16 | TUI 命令栏:14 条 /xxx 命令替代全部快捷键 + 卡死排查 | `163cbb2`, `30c7d73`, `9319822` | `dev` |
 | 7 | 2026-10-12 | dev..master 全量审查与修复包（review-fixpack） | `1a0ebbe`, `6d9d5d9`, `a062d7a`, `532049c`, `fd8e55d` | `dev` |
 | 6 | 2026-10-10 | 指标增强包:P50/P95+连续异常+错误分布+抖动 | `528ccb1` | `dev` |
