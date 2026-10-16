@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -474,11 +475,17 @@ func TestTruncateRunes(t *testing.T) {
 // usage arriving after [DONE] is not consumed (design boundary), and a
 // usage value of 0 is still evidence (0, not nil).
 func TestIncludeUsageRequestAndCapture(t *testing.T) {
+	// sawBody is written on the server goroutine and read after each Do;
+	// the mutex gives the race detector a clean happens-before edge.
+	var mu sync.Mutex
 	var sawBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		sawBody = map[string]any{}
-		_ = json.Unmarshal(body, &sawBody)
+		parsed := map[string]any{}
+		_ = json.Unmarshal(body, &parsed)
+		mu.Lock()
+		sawBody = parsed
+		mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		sseWrite(w,
 			`data: {"choices":[{"delta":{"content":"Hello world"}}]}`,
@@ -495,9 +502,12 @@ func TestIncludeUsageRequestAndCapture(t *testing.T) {
 	// recorded (§3.2 allows unsolicited usage; evidence is never fabricated).
 	o := Do(context.Background(), testClient(), testTarget(srv.URL, 3000, 5000))
 	assertStatus(t, o, StatusOK)
+	mu.Lock()
 	if _, present := sawBody["stream_options"]; present {
+		mu.Unlock()
 		t.Fatalf("request carried stream_options with switch off: %v", sawBody)
 	}
+	mu.Unlock()
 	if o.PromptTokens == nil || *o.PromptTokens != 64 {
 		t.Fatalf("volunteered usage must be captured even with switch off, got %v", o.PromptTokens)
 	}
@@ -507,10 +517,13 @@ func TestIncludeUsageRequestAndCapture(t *testing.T) {
 	tgt.IncludeUsage = true
 	o = Do(context.Background(), testClient(), tgt)
 	assertStatus(t, o, StatusOK)
+	mu.Lock()
 	opts, ok := sawBody["stream_options"].(map[string]any)
 	if !ok || opts["include_usage"] != true {
+		mu.Unlock()
 		t.Fatalf("stream_options = %v, want include_usage=true", sawBody["stream_options"])
 	}
+	mu.Unlock()
 	if o.PromptTokens == nil || *o.PromptTokens != 64 {
 		t.Fatalf("PromptTokens = %v, want 64", o.PromptTokens)
 	}
@@ -584,4 +597,25 @@ func TestUsageZeroCaptured(t *testing.T) {
 	if o.PromptTokens == nil || *o.PromptTokens != 0 {
 		t.Fatalf("PromptTokens = %v, want pointer to 0", o.PromptTokens)
 	}
+}
+
+// review-fixpack-2 F2: SSE tolerance. A whitespace-only data payload
+// ("data:  " — two spaces survive cutField's single-space strip) is a
+// keep-alive, and proxy-injected unknown field lines are ignored per the
+// SSE spec; neither may be judged protocol_error.
+func TestSSEToleratesKeepAliveAndUnknownFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseWrite(w,
+			": heartbeat",
+			"data:  ",
+			"x-custom-field: injected by a proxy",
+			`data: {"choices":[{"delta":{"content":"Hi"}}]}`,
+			"",
+			`data: [DONE]`,
+			"")
+	}))
+	defer srv.Close()
+	o := Do(context.Background(), testClient(), testTarget(srv.URL, 3000, 5000))
+	assertStatus(t, o, StatusOK)
 }

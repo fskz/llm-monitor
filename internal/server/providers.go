@@ -207,7 +207,7 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 	// manualProbe reads r.slow); throughput uses the same derivation as the
 	// stored-sample statistics.
 	pv := view.ProbeView{Result: res, Slow: view.SlowTTFT(p, res)}
-	if res.Status == "ok" {
+	if res.Status == store.StatusOK {
 		pv.DecodeTPS = store.ResultTPS(*res, true)
 		pv.PrefillTPS = store.ResultTPS(*res, false)
 	}

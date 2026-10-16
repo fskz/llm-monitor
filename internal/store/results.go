@@ -12,8 +12,8 @@ import (
 //
 // Corrupt lines are skipped and counted, never repaired or dropped from
 // disk (REQUIREMENTS.md §5.5). Records beyond the retention cap are kept
-// in memory as loaded; the first append after startup triggers the
-// retention rewrite (design.md §4.3).
+// in memory as loaded; the first append past the cap+slack margin triggers
+// the retention rewrite (design.md §4.3).
 func loadProviderResults(path string) *providerResults {
 	pr := &providerResults{path: path, nextSeq: 1}
 	f, err := os.Open(path)
@@ -65,10 +65,12 @@ func (pr *providerResults) appendMem(r Result) {
 // record with its assigned Seq. Seq is assigned here (monotonic per provider,
 // never reset by trimming); the JSONL line is appended with O_APPEND and the
 // in-memory index is updated under the same lock, so the file and memory
-// never diverge. When the retention cap is exceeded the file is rewritten
-// atomically (temp+rename) keeping the newest maxResultsPerProvider records —
-// trimming never loses the record being appended. Errors are returned, never
-// swallowed: the caller must surface storage failures explicitly
+// never diverge. When the in-memory count passes maxKeep+trimSlack the file
+// is rewritten atomically (temp+rename) keeping the newest
+// maxResultsPerProvider records — trimming never loses the record being
+// appended, and the slack margin keeps steady-state appends O(1) instead of
+// rewriting on every append (REQUIREMENTS.md §5.3). Errors are returned,
+// never swallowed: the caller must surface storage failures explicitly
 // (REQUIREMENTS.md §5.5).
 func (s *Store) AppendResult(r Result) (Result, error) {
 	pr := s.resultsFor(r.ProviderID)
@@ -100,15 +102,23 @@ func (s *Store) AppendResult(r Result) (Result, error) {
 	}
 	pr.appendMem(r)
 
-	// Retention: rewrite the file when over cap, in the same critical
-	// section as the append so concurrent appends cannot be lost.
-	if len(pr.records) > maxKeep {
+	// Retention: rewrite the file only once the count passes the cap plus
+	// the slack margin, trimming back to maxKeep — all in the same critical
+	// section as the append so concurrent appends cannot be lost. Without
+	// the margin a provider at the cap would rewrite the whole file on every
+	// append; the margin amortizes the rewrite to once per slack appends.
+	if len(pr.records) > maxKeep+trimSlack(maxKeep) {
 		if err := pr.rewriteKeeping(maxKeep); err != nil {
 			return r, fmt.Errorf("store: trim %s: %w", pr.path, err)
 		}
 	}
 	return r, nil
 }
+
+// trimSlack is the retention hysteresis margin: at most one full rewrite per
+// slack appends once the cap is reached. Caps below 10 yield slack 0 and
+// keep the rewrite-per-append behavior of tiny test setups.
+func trimSlack(maxKeep int) int { return maxKeep / 10 }
 
 // appendLine writes one JSONL line with O_APPEND.
 func appendLine(path string, line []byte) error {

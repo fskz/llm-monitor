@@ -7,8 +7,9 @@ import (
 
 // Stats is the availability summary of one provider over a time window
 // (REQUIREMENTS.md §3.4). Denominator: completed, actually-issued,
-// non-cancelled *scheduled* probes — manual probes and skips never enter
-// it. The three categories are mutually exclusive and exhaustive:
+// non-cancelled probes under the query's source filter (scheduled/manual/
+// all; cancelled never enters it — skipped ticks produce no record at all).
+// The three categories are mutually exclusive and exhaustive:
 // OKPct+TimeoutPct+ErrorPct = 100%. When Samples=0 every percentage is nil
 // (the panel shows "no samples" instead of 0% or 100%).
 type Stats struct {
@@ -275,6 +276,9 @@ func (s *Store) Stats(providerID int, revision int, window time.Duration, source
 // always land in the last bucket, and older samples land deterministically
 // on the fixed grid. Other windows fall back to 24 equal buckets.
 func bucketLayout(window time.Duration) (start time.Time, width time.Duration, count int) {
+	if window <= 0 {
+		window = 24 * time.Hour // guard: width would be 0 and divide by zero
+	}
 	now := time.Now()
 	switch window {
 	case time.Hour:

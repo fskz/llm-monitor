@@ -744,3 +744,41 @@ func TestLegacyDataWithoutUsageFieldsLoads(t *testing.T) {
 		t.Fatalf("legacy throughput = %v/%v, want nil/nil", dec, pre)
 	}
 }
+
+// review-fixpack-2 F1: the retention rewrite is hysteresis-batched. Appends
+// up to maxKeep+slack must NOT rewrite (steady-state appends stay O(1),
+// REQUIREMENTS.md §5.3); passing the margin rewrites once and trims back to
+// maxKeep, keeping Seq monotonic.
+func TestTrimSlackHysteresis(t *testing.T) {
+	dir := t.TempDir()
+	writeRawConfig(t, dir, 20) // slack = 20/10 = 2
+	s, err := New(dir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	p := mustAddProvider(t, s, "slack")
+	nowMs := time.Now().UnixMilli()
+	for i := 1; i <= 22; i++ {
+		appendResult(t, s, mkResult(p, statusOK, nowMs-int64(22-i)*1000))
+	}
+	if got := s.ResultCount(p.ID); got != 22 {
+		t.Fatalf("count at cap+slack = %d, want 22 (no rewrite below the margin)", got)
+	}
+	// Append #23 passes maxKeep+slack: one rewrite trims back to 20.
+	appendResult(t, s, mkResult(p, statusOK, time.Now().UnixMilli()))
+	if got := s.ResultCount(p.ID); got != 20 {
+		t.Fatalf("count after rewrite = %d, want 20", got)
+	}
+	// On-disk state matches: reopen keeps the newest 20 (seq 4..23).
+	s2, err := New(dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if got := s2.ResultCount(p.ID); got != 20 {
+		t.Fatalf("on-disk count after reload = %d, want 20", got)
+	}
+	newest := s2.QueryResults(p.ID, RevisionAll, SourceAll, 24*time.Hour, 1, nil, nil)
+	if len(newest) != 1 || newest[0].Seq != 23 {
+		t.Fatalf("newest = %+v, want seq 23 (monotonic across the rewrite)", newest)
+	}
+}

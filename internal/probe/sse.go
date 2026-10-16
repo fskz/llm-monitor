@@ -58,6 +58,13 @@ func (r *run) processLine(line []byte) bool {
 	if _, ok := cutField(s, "retry:"); ok {
 		return false
 	}
+	// Unknown field names are ignored per SSE — a proxy-injected
+	// "x-custom: v" line is not a protocol violation. Only lines with no
+	// field structure at all (bare JSON bodies, plain text) reach the
+	// bare-body judgment, which keeps in-band error objects detectable.
+	if !strings.HasPrefix(s, "{") && !strings.HasPrefix(s, "[") && strings.Contains(s, ":") {
+		return false
+	}
 	return r.handleUnknownLine(s)
 }
 
@@ -76,8 +83,8 @@ func (r *run) handleData(data string) bool {
 		r.st.doneAt = time.Now()
 		return true
 	}
-	if data == "" {
-		return false // keep-alive empty data line
+	if strings.TrimSpace(data) == "" {
+		return false // keep-alive data line with an empty/whitespace payload
 	}
 	var ev streamEvent
 	if err := json.Unmarshal([]byte(data), &ev); err != nil {

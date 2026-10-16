@@ -272,8 +272,17 @@ func (e *Engine) scheduledProbe(r *providerRunner) {
 // in-flight slot: ErrInFlight is returned when one is already running.
 // Disabled and manual-only providers may still be probed manually. When
 // persisting fails, both the (unpersisted) result and the storage error are
-// returned so callers can surface the storage problem explicitly.
-func (e *Engine) ProbeNow(id int) (*store.Result, error) {
+// returned so callers can surface the storage problem explicitly. A panic
+// is recovered and returned as an error: callers run ProbeNow on bare
+// goroutines (TUI) where an unrecovered panic would kill the whole process
+// (§5.5, same protection as the scheduler).
+func (e *Engine) ProbeNow(id int) (res *store.Result, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			fmt.Fprintf(os.Stderr, "engine: manual probe panic: %v\n%s", v, debug.Stack())
+			res, err = nil, fmt.Errorf("engine: manual probe panic: %v", v)
+		}
+	}()
 	e.mu.Lock()
 	if e.stopped {
 		e.mu.Unlock()
@@ -295,11 +304,11 @@ func (e *Engine) ProbeNow(id int) (*store.Result, error) {
 	defer e.wg.Done()
 	defer r.inFlight.Store(false)
 
-	res := e.runProbe(r.ctx, r.provider, store.SourceManual)
-	if err := e.persist(&res); err != nil {
-		return &res, fmt.Errorf("engine: persist manual result: %w", err)
+	out := e.runProbe(r.ctx, r.provider, store.SourceManual)
+	if err := e.persist(&out); err != nil {
+		return &out, fmt.Errorf("engine: persist manual result: %w", err)
 	}
-	return &res, nil
+	return &out, nil
 }
 
 // Probing reports whether the provider currently has a probe in flight

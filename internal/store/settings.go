@@ -1,5 +1,7 @@
 package store
 
+import "encoding/json"
+
 // Settings is the tool-level configuration (task 10-10-settings-pack),
 // persisted as the "settings" section of config.json. Absent section or
 // fields fall back to the built-in defaults — old config files keep
@@ -29,6 +31,45 @@ type SettingsDefaults struct {
 	TTFTSlowMs    int  `json:"ttft_slow_ms"`
 	Enabled       bool `json:"enabled"`
 	IncludeUsage  bool `json:"include_usage"`
+}
+
+// UnmarshalJSON applies per-field defaults for ABSENT fields only, so a
+// partially written settings section behaves like the documented "absent
+// fields fall back to the built-in defaults" — while explicitly written
+// values survive verbatim, including enabled:false and interval_sec:0
+// (manual-only), which must not be defaulted away. Invalid values that ARE
+// present (e.g. max_tokens:-3) stay as-is here; settingsLocked sanitizes
+// them at read time.
+func (d *SettingsDefaults) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		MaxTokens     *int  `json:"max_tokens"`
+		IntervalSec   *int  `json:"interval_sec"`
+		TimeoutSec    *int  `json:"timeout_sec"`
+		TTFTTimeoutMs *int  `json:"ttft_timeout_ms"`
+		TTFTSlowMs    *int  `json:"ttft_slow_ms"`
+		Enabled       *bool `json:"enabled"`
+		IncludeUsage  *bool `json:"include_usage"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	def := DefaultSettings().Defaults
+	d.MaxTokens = orDefault(raw.MaxTokens, def.MaxTokens)
+	d.IntervalSec = orDefault(raw.IntervalSec, def.IntervalSec)
+	d.TimeoutSec = orDefault(raw.TimeoutSec, def.TimeoutSec)
+	d.TTFTTimeoutMs = orDefault(raw.TTFTTimeoutMs, def.TTFTTimeoutMs)
+	d.TTFTSlowMs = orDefault(raw.TTFTSlowMs, def.TTFTSlowMs)
+	d.Enabled = orDefault(raw.Enabled, def.Enabled)
+	d.IncludeUsage = orDefault(raw.IncludeUsage, def.IncludeUsage)
+	return nil
+}
+
+// orDefault dereferences p when the field was present, else returns def.
+func orDefault[T any](p *T, def T) T {
+	if p != nil {
+		return *p
+	}
+	return def
 }
 
 // DefaultSettings returns the built-in defaults (matching the historical
@@ -75,7 +116,11 @@ func (s *Store) settingsLocked() Settings {
 	if !(d.TTFTSlowMs > 0 && d.TTFTSlowMs < d.TTFTTimeoutMs) {
 		d.TTFTSlowMs = def.Defaults.TTFTSlowMs
 	}
-	// IntervalSec keeps 0 (manual-only is a legitimate default).
+	// IntervalSec keeps explicit 0 (manual-only is a legitimate default);
+	// negative values are corrupt and fall back.
+	if d.IntervalSec < 0 {
+		d.IntervalSec = def.Defaults.IntervalSec
+	}
 	return st
 }
 

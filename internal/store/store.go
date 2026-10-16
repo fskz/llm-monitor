@@ -43,6 +43,12 @@ const (
 	statusCancelled    = "cancelled"
 )
 
+// StatusOK is the exported mirror of probe.StatusOK for consumers that may
+// not import probe (the server compares manual-probe outcomes, e.g.
+// handleProbe). Keep in sync with the four-way status contract
+// (probe const, store mirror, view.StatusText, web/app.js).
+const StatusOK = statusOK
+
 const (
 	// defaultMaxResultsPerProvider is the retention cap applied when the
 	// config file does not override it (REQUIREMENTS.md §5.3).
@@ -205,6 +211,7 @@ func (s *Store) loadConfig() error {
 				NextID:                1,
 				MaxResultsPerProvider: defaultMaxResultsPerProvider,
 				Providers:             []Provider{},
+				Settings:              DefaultSettings(),
 			}
 			s.maxKeep = s.config.MaxResultsPerProvider
 			return nil
@@ -214,6 +221,17 @@ func (s *Store) loadConfig() error {
 	var cfg configFile
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return fmt.Errorf("store: parse %s: %w", s.configPath(), err)
+	}
+	// An absent settings section (pre-settings-pack config) loads as the
+	// built-in defaults — a zero-value Settings would report enabled=false /
+	// interval 0 and violate "absent section falls back to defaults".
+	// Field-level absence inside a present section is handled by
+	// SettingsDefaults.UnmarshalJSON.
+	var rawCfg struct {
+		Settings json.RawMessage `json:"settings"`
+	}
+	if json.Unmarshal(data, &rawCfg) == nil && len(rawCfg.Settings) == 0 {
+		cfg.Settings = DefaultSettings()
 	}
 	if cfg.Providers == nil {
 		cfg.Providers = []Provider{}

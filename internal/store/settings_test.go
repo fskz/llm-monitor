@@ -63,3 +63,56 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 	_ = os.RemoveAll(dir)
 }
+
+// review-fixpack-2 F6: a settings section that is absent entirely, or whose
+// defaults object omits fields, loads with the built-in defaults — never
+// enabled=false/interval 0 — while explicitly written false/0 survive
+// verbatim (manual-only default stays legitimate). F3: a corrupt negative
+// interval falls back at read time.
+func TestSettingsAbsentSectionAndPartialDefaults(t *testing.T) {
+	dir := t.TempDir()
+	// Legacy file: providers present, no settings key at all.
+	if err := os.WriteFile(filepath.Join(dir, "config.json"),
+		[]byte(`{"version":1,"next_id":2,"providers":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := New(dir)
+	if err != nil {
+		t.Fatalf("New legacy: %v", err)
+	}
+	def := DefaultSettings()
+	got := st.GetSettings()
+	if !got.Defaults.Enabled || got.Defaults.IntervalSec != def.Defaults.IntervalSec {
+		t.Fatalf("absent section defaults = %+v, want enabled=true interval=%d",
+			got.Defaults, def.Defaults.IntervalSec)
+	}
+
+	// Partial section: explicit interval 0 / enabled false must survive;
+	// every other absent field falls back to the default.
+	if err := os.WriteFile(filepath.Join(dir, "config.json"),
+		[]byte(`{"version":1,"next_id":2,"providers":[],"settings":{"defaults":{"interval_sec":0,"enabled":false}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st2, err := New(dir)
+	if err != nil {
+		t.Fatalf("New partial: %v", err)
+	}
+	got2 := st2.GetSettings()
+	if got2.Defaults.IntervalSec != 0 || got2.Defaults.Enabled {
+		t.Fatalf("explicit interval 0 / enabled false not preserved: %+v", got2.Defaults)
+	}
+	if got2.Defaults.MaxTokens != def.Defaults.MaxTokens || got2.Defaults.TimeoutSec != def.Defaults.TimeoutSec ||
+		got2.Defaults.TTFTTimeoutMs != def.Defaults.TTFTTimeoutMs || got2.Defaults.TTFTSlowMs != def.Defaults.TTFTSlowMs {
+		t.Fatalf("absent fields must fall back to defaults: %+v", got2.Defaults)
+	}
+
+	// Corrupt negative interval: sanitized at read time to the default.
+	bad := DefaultSettings()
+	bad.Defaults.IntervalSec = -5
+	if err := st2.SaveSettings(bad); err != nil {
+		t.Fatalf("SaveSettings bad: %v", err)
+	}
+	if got := st2.GetSettings().Defaults.IntervalSec; got != def.Defaults.IntervalSec {
+		t.Fatalf("negative interval = %d, want fallback %d", got, def.Defaults.IntervalSec)
+	}
+}
