@@ -71,6 +71,9 @@ func StatsViewFromPack(mp store.MetricsPack) StatsView {
 	v.TotalP50Ms = mp.Percentiles.TotalP50
 	v.TotalP95Ms = mp.Percentiles.TotalP95
 	v.FlipRate = mp.FlipRate
+	// Empty array (never null): the wire contract documents errors_by_kind as
+	// "empty array when the window has no failing sample".
+	v.ErrorsByKind = []ErrorKindView{}
 	for _, e := range mp.ErrorsByKind {
 		v.ErrorsByKind = append(v.ErrorsByKind, ErrorKindView{
 			Status: e.Status, Count: e.Count, Label: StatusText(e.Status),

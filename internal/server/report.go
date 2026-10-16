@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 
@@ -28,10 +29,16 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filename := view.ReportFilename(p, window)
+	// Render into a buffer first: the report is bounded (≤200 detail rows),
+	// and only a successful render gets headers + body. A rendering error
+	// must surface as a clean 500 instead of a corrupted mid-stream download
+	// (headers cannot be rewritten once written).
+	var buf bytes.Buffer
+	if err := view.RenderReport(&buf, s.st, s.eng, p, rev, source, window); err != nil {
+		writeError(w, http.StatusInternalServerError, "报告渲染失败："+err.Error())
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-	if err := view.RenderReport(w, s.st, s.eng, p, rev, source, window); err != nil {
-		// Headers are already sent; nothing sane to rewrite mid-stream.
-		http.Error(w, "report rendering failed: "+err.Error(), http.StatusInternalServerError)
-	}
+	_, _ = w.Write(buf.Bytes())
 }

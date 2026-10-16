@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -38,10 +37,14 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 // handlePutSettings validates and persists the whole settings section.
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	var c settingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON")
+	if !decodeJSON(w, r, &c) {
 		return
 	}
+	// Trim BEFORE validating: ValidateSettings→DirWritable runs MkdirAll on
+	// the given path, so validating the raw value would create mis-named
+	// directories ("dir " with trailing space) while saving the trimmed one.
+	// One value flows through validate → save → response.
+	c.ReportDir = strings.TrimSpace(c.ReportDir)
 	if msg := view.ValidateSettings(store.Settings{
 		Defaults:    c.Defaults,
 		StreakAlert: c.StreakAlert,
@@ -53,7 +56,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.SaveSettings(store.Settings{
 		Defaults:    c.Defaults,
 		StreakAlert: c.StreakAlert,
-		ReportDir:   strings.TrimSpace(c.ReportDir),
+		ReportDir:   c.ReportDir,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "保存设置失败："+err.Error())
 		return

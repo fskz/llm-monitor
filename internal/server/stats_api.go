@@ -174,6 +174,11 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 		next = encodeCursor(last.StartedAt, last.Seq)
 		items = items[:limit]
 	}
+	// Empty array (never null) for a page with no records — matches the
+	// errors_by_kind contract and keeps direct API consumers simple.
+	if items == nil {
+		items = []store.Result{}
+	}
 	resp := map[string]any{"items": items}
 	if next != "" {
 		resp["next_cursor"] = next

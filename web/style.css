@@ -87,7 +87,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* 详情 */
 .detail-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
-.detail-head h2 { margin: 0; font-size: 17px; }
+.detail-head h2 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
 .toolbar {
   display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
   background: var(--card); border: 1px solid var(--border); border-radius: 8px;

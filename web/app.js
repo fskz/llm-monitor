@@ -8,7 +8,7 @@ let appSettings = null;   // GET /api/settings cache (10-10-settings-pack)
 let pageCursor = null;       // cursor used to fetch the current page (null = first)
 let nextCursor = null;       // next_cursor from the latest response (null = no more)
 let prevCursors = [];        // stack of cursors-to-use for going back
-let overviewTimer = null;
+let detailRefreshing = false; // single-flight guard: poll and pagination never race
 
 const $ = (id) => document.getElementById(id);
 
@@ -105,15 +105,14 @@ async function loadOverview() {
     console.error("load overview failed:", e);
     return;
   }
-  // Settings failure must not block rendering the already-fetched providers:
-  // keep the current appSettings (may be null; renderOverview falls back) and
-  // retry on the next poll (10-12 #7).
-  if (!appSettings) {
-    try {
-      appSettings = await api("/api/settings"); // once; the dialog refreshes it
-    } catch (e) {
-      console.warn("load settings failed:", e);
-    }
+  // Settings ride the same poll so cross-end changes (e.g. the TUI writing
+  // settings) reach this page within one cycle (#9); failures keep the
+  // previous values and retry next poll. Open forms are untouched — they
+  // read appSettings only when they open.
+  try {
+    appSettings = await api("/api/settings");
+  } catch (e) {
+    console.warn("load settings failed:", e);
   }
   $("storage-warn").classList.toggle("hidden", !providers.some((p) => p.storage_error));
   renderOverview();
@@ -170,16 +169,12 @@ function renderOverview() {
   wrap.querySelectorAll(".act-toggle").forEach((b) =>
     b.addEventListener("click", (ev) => { ev.stopPropagation(); toggleProvider(Number(b.dataset.id)); }));
   wrap.querySelectorAll(".act-clone").forEach((b) =>
-    b.addEventListener("click", (ev) => { ev.stopPropagation(); cloneProvider(Number(b.dataset.id)); }));
+    b.addEventListener("click", (ev) => { ev.stopPropagation(); cloneProvider(Number(b.dataset.id), b); }));
   wrap.querySelectorAll(".act-delete").forEach((b) =>
     b.addEventListener("click", (ev) => { ev.stopPropagation(); confirmDelete(Number(b.dataset.id)); }));
 }
 
 /* ---------- detail ---------- */
-
-function windowMs() {
-  return { "1h": 3600e3, "24h": 86400e3, "7d": 7 * 86400e3 }[curWindow];
-}
 
 function revisionParam() {
   if (curRevision === "" || curRevision === "all") return curRevision;
@@ -198,24 +193,34 @@ async function openDetail(id) {
 }
 
 async function refreshDetail() {
-  if (currentId == null) return;
-  const rev = revisionParam();
-  const qs = `provider=${currentId}&revision=${encodeURIComponent(rev)}&window=${curWindow}`;
-  const src = `&source=${curSource}`; // stats/series follow the source filter (10-10)
-  const [providersAll, stats, series, results] = await Promise.all([
-    api("/api/providers"),
-    api(`/api/stats?${qs}${src}`),
-    api(`/api/series?${qs}${src}`),
-    api(`/api/results?${qs}${src}&limit=50${pageCursor ? `&before=${encodeURIComponent(pageCursor)}` : ""}`),
-  ]);
-  providers = providersAll;
-  const p = providers.find((x) => x.id === currentId);
-  if (!p) { closeDetail(); return; }
-  $("detail-status").innerHTML = statusBadge(p);
-  renderRevisions(p);
-  renderStats(stats);
-  renderCharts(series);
-  renderResults(results, stats);
+  // Single-flight: the 5s poll and pagination clicks share this guard so two
+  // in-flight responses can never interleave their page cursors.
+  if (currentId == null || detailRefreshing) return;
+  detailRefreshing = true;
+  try {
+    const rev = revisionParam();
+    const qs = `provider=${currentId}&revision=${encodeURIComponent(rev)}&window=${curWindow}`;
+    const src = `&source=${curSource}`; // stats/series follow the source filter (10-10)
+    const [providersAll, stats, series, results] = await Promise.all([
+      api("/api/providers"),
+      api(`/api/stats?${qs}${src}`),
+      api(`/api/series?${qs}${src}`),
+      api(`/api/results?${qs}${src}&limit=50${pageCursor ? `&before=${encodeURIComponent(pageCursor)}` : ""}`),
+    ]);
+    providers = providersAll;
+    const p = providers.find((x) => x.id === currentId);
+    if (!p) { closeDetail(); return; } // deleted from another end while open
+    $("detail-status").innerHTML = statusBadge(p);
+    renderRevisions(p);
+    renderStats(stats);
+    renderCharts(series);
+    renderResults(results);
+  } catch (e) {
+    if (e.status === 404) { closeDetail(); return; } // object gone (or panel closed): leave the detail
+    console.warn("refresh detail failed:", e); // transient error: keep the last rendered state
+  } finally {
+    detailRefreshing = false;
+  }
 }
 
 function renderRevisions(p) {
@@ -269,7 +274,9 @@ function renderStats(stats) {
     },
   ];
   const stability = [{ l: "抖动（结果翻转率）", v: fmtFlip(stats.flip_rate) }];
-  const breakdown = (stats.errors_by_kind || []).map((e) => `${e.label}×${e.count}`).join(" · ");
+  // Labels come from the server status table; esc() covers the raw-status
+  // fallback path (defence in depth, same rule as the results table).
+  const breakdown = (stats.errors_by_kind || []).map((e) => `${esc(e.label)}×${e.count}`).join(" · ");
   if (breakdown) stability.push({ l: "错误分布", v: breakdown, wide: true });
   groups.push({ title: "稳定性", items: stability });
 
@@ -359,7 +366,7 @@ function xLabels(buckets, PL, W, PR) {
 
 /* ---------- results table ---------- */
 
-function renderResults(page, stats) {
+function renderResults(page) {
   const body = $("results-body");
   if (!page.items || !page.items.length) {
     body.innerHTML = `<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">暂无记录</td></tr>`;
@@ -369,7 +376,9 @@ function renderResults(page, stats) {
         : r.status.startsWith("timeout") ? "status-timeout"
         : r.status === "cancelled" ? "" : "status-fail";
       const err = r.error ? `<span class="muted">${esc(r.error)}</span>` : "";
-      const note = r.status === "cancelled" ? "主动取消，不计入统计" : (STATUS_TEXT[r.status] || r.status);
+      // The fallback (unknown status string) goes through esc() like every
+      // server-derived string — a hand-edited history file must not inject HTML.
+      const note = r.status === "cancelled" ? "主动取消，不计入统计" : esc(STATUS_TEXT[r.status] || r.status);
       return `<tr class="${cls}">
         <td>${fmtTime(r.started_at)}</td>
         <td>${r.source === "manual" ? "手动" : "定时"}</td>
@@ -437,7 +446,9 @@ function readProviderForm() {
     prompt: $("f-prompt").value.trim() || defaultPrompt(),
     max_tokens: Number($("f-maxtokens").value || 0),
     interval_sec: Math.round(intervalMin * 60),
-    timeout_sec: Number($("f-timeout").value || 0),
+    // timeout_sec is an integer field; round so a decimal step=any input
+    // cannot fail JSON decoding downstream with a misleading 400.
+    timeout_sec: Math.round(Number($("f-timeout").value || 0)),
     ttft_timeout_ms: Math.round(Number($("f-ttft").value || 0) * 1000),
     ttft_slow_ms: Math.round(Number($("f-slow").value || 0) * 1000),
     enabled: $("f-enabled").checked,
@@ -446,14 +457,16 @@ function readProviderForm() {
 }
 
 function validateProvider(c) {
+  // Rule ORDER mirrors view.ProviderForm.Validate so the first-error message
+  // matches what the server would answer for the same form.
   if (!c.name) return "名称不能为空";
   if (!/^https?:\/\//.test(c.base_url)) return "Base URL 必须以 http:// 或 https:// 开头（API 前缀，如 https://example.com/v1）";
   if (!c.model) return "模型不能为空";
   if (!(c.max_tokens > 0)) return "max_tokens 必须大于 0";
+  if (!(c.timeout_sec > 0)) return "总超时必须大于 0";
   if (!(c.interval_sec === 0 || c.interval_sec >= 60)) return "探测间隔为 0（仅手动）或至少 1 分钟";
   if (!(c.ttft_slow_ms > 0 && c.ttft_slow_ms < c.ttft_timeout_ms)) return "需要 0 < 慢阈值 < 首内容超时";
   if (!(c.ttft_timeout_ms <= c.timeout_sec * 1000)) return "首内容超时不能大于总超时";
-  if (!(c.timeout_sec > 0)) return "总超时必须大于 0";
   return null;
 }
 
@@ -466,6 +479,11 @@ async function saveProvider(ev) {
   // api_key semantics: absent = keep, "" = clear (send only when user typed or checked clear)
   if ($("f-clearkey").checked && !$("f-apikey").value) cfg.api_key = "";
   else if ($("f-apikey").value) cfg.api_key = $("f-apikey").value;
+  // In-flight lock: the dialog stays open until the save answers, so a
+  // double click/Enter must not create the object twice (the server has no
+  // idempotency key).
+  const btn = ev.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
   try {
     if (id) {
       await api(`/api/providers/${id}`, { method: "PUT", body: JSON.stringify(cfg) });
@@ -476,6 +494,7 @@ async function saveProvider(ev) {
     await loadOverview();
   } catch (e) {
     showFormError(e.message);
+    btn.disabled = false;
   }
 }
 
@@ -491,6 +510,7 @@ function openSettingsDialog() {
   const dlg = $("dlg-settings");
   $("settings-error").classList.add("hidden");
   api("/api/settings").then((s) => {
+    if (dlg.open) return; // double click: the second fetch must not re-showModal()
     appSettings = s;
     $("s-maxtokens").value = s.defaults.max_tokens;
     $("s-interval").value = s.defaults.interval_sec ? s.defaults.interval_sec / 60 : 0;
@@ -511,7 +531,8 @@ async function saveSettings(ev) {
     defaults: {
       max_tokens: Number($("s-maxtokens").value),
       interval_sec: Math.round(Number($("s-interval").value) * 60),
-      timeout_sec: Number($("s-timeout").value),
+      // Integer field: round a decimal step=any input instead of failing decode.
+      timeout_sec: Math.round(Number($("s-timeout").value)),
       ttft_timeout_ms: Math.round(Number($("s-ttft").value) * 1000),
       ttft_slow_ms: Math.round(Number($("s-slow").value) * 1000),
       enabled: $("s-enabled").checked,
@@ -557,13 +578,18 @@ async function toggleProvider(id) {
 // there — it never reaches this page) and opens the edit dialog on the
 // new copy with the model field focused: the clone-for-model-variants
 // flow is click → type model name → save.
-async function cloneProvider(id) {
+async function cloneProvider(id, btn) {
+  // In-flight lock on the clicked card button: no modal blocks it, so a
+  // double click would otherwise create two 副本 objects.
+  if (btn) btn.disabled = true;
   let created;
   try {
     created = await api(`/api/providers/${id}/clone`, { method: "POST" });
   } catch (e) {
     alert("克隆失败：" + e.message);
     return;
+  } finally {
+    if (btn) btn.disabled = false;
   }
   await loadOverview();
   openProviderDialog(created.id);
@@ -598,7 +624,7 @@ async function manualProbe() {
     const cls = r.status === "ok" ? "badge ok" : "badge fail";
     box.innerHTML = `
       <table>
-        <tr><td>结果</td><td><span class="${cls}">${STATUS_TEXT[r.status] || r.status}</span>
+        <tr><td>结果</td><td><span class="${cls}">${esc(STATUS_TEXT[r.status] || r.status)}</span>
           ${r.status === "ok" && r.slow ? `<span class="muted">（首内容较慢）</span>` : ""}</td></tr>
         <tr><td>TTFT</td><td>${fmtMs(r.ttft_ms)}</td></tr>
         <tr><td>总耗时</td><td>${fmtMs(r.total_ms)}</td></tr>
@@ -664,7 +690,7 @@ function init() {
     refreshDetail();
   });
   loadOverview();
-  overviewTimer = setInterval(() => { if (currentId == null) loadOverview(); }, 5000);
+  setInterval(() => { if (currentId == null) loadOverview(); }, 5000);
   setInterval(() => { if (currentId != null) refreshDetail(); }, 5000);
 }
 

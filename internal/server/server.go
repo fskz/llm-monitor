@@ -5,6 +5,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -37,6 +38,27 @@ type Server struct {
 // webFS is the embedded panel filesystem (web.FS()).
 func New(st *store.Store, eng EngineAPI, mut ProviderMutator, webFS fs.FS, port int) *Server {
 	return &Server{st: st, eng: eng, mut: mut, webFS: webFS, port: port}
+}
+
+// maxRequestBody caps JSON bodies on the write endpoints: index.html's
+// maxlength is client-side only, so a direct API call must not stream an
+// unbounded body into the decoder (review-fixpack-2 F8).
+const maxRequestBody = 1 << 20 // 1 MiB
+
+// decodeJSON decodes one capped JSON request body; on failure it has already
+// written the error response (413 over the cap, 400 otherwise).
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "请求体过大（上限 1 MiB）")
+			return false
+		}
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		return false
+	}
+	return true
 }
 
 // Handler returns the complete routing tree, ready for http.Serve.

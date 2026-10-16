@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1258,5 +1259,38 @@ func TestSettingsAPI(t *testing.T) {
 	// Cross-origin PUT rejected.
 	if res, _ := serve(t, s, "PUT", "/api/settings", put, map[string]string{"Origin": "http://evil.example:80"}); res.StatusCode != 403 {
 		t.Fatalf("cross-origin put = %d, want 403", res.StatusCode)
+	}
+}
+
+// review-fixpack-2 F8: write endpoints cap the request body (413, not a
+// misleading 400), and report_dir is trimmed BEFORE validation so
+// DirWritable never creates mis-named directories while a different
+// (trimmed) value is saved.
+func TestSettingsBodyCapAndReportDirTrim(t *testing.T) {
+	s, _, _ := newTestServer(t)
+
+	// Oversized body → 413.
+	huge := `{"streak_alert":3,"pad":"` + strings.Repeat("x", 1<<20) + `"}`
+	if res, body := serve(t, s, "PUT", "/api/settings", huge, nil); res.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized put = %d (%s), want 413", res.StatusCode, body)
+	}
+
+	// Padded report_dir: the padded directory must not be created; the
+	// trimmed path is what gets validated, saved and returned.
+	base := t.TempDir()
+	padded := `{"streak_alert":3,"defaults":{"max_tokens":128,"timeout_sec":60,"ttft_timeout_ms":15000,"ttft_slow_ms":3000},"report_dir":` + strconv.Quote(base+"/rep ") + `}`
+	res, body := serve(t, s, "PUT", "/api/settings", padded, nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("padded put = %d (%s), want 200", res.StatusCode, body)
+	}
+	if _, err := os.Stat(base + "/rep "); !os.IsNotExist(err) {
+		t.Fatalf("padded directory must not be created: %v", err)
+	}
+	var sv SettingsView
+	if err := json.Unmarshal([]byte(body), &sv); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if sv.ReportDir != base+"/rep" {
+		t.Fatalf("saved report_dir = %q, want trimmed %q", sv.ReportDir, base+"/rep")
 	}
 }

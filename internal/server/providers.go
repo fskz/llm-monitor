@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,8 +39,7 @@ func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAddProvider(w http.ResponseWriter, r *http.Request) {
 	var c providerRequest
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON")
+	if !decodeJSON(w, r, &c) {
 		return
 	}
 	f := c.form()
@@ -120,8 +118,7 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var c providerRequest
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON")
+	if !decodeJSON(w, r, &c) {
 		return
 	}
 	f := c.form()
