@@ -12,10 +12,24 @@ import "strings"
 // Messages are plain text; the TUI adds its color tags around them and must
 // not inject user-controlled text into them.
 
-// CommandHintText is the status-bar guide line of the command-bar era. It
-// replaces the old shortcut guide once the rune keys retire (prd R4).
+// CommandHintText is the status-bar guide line while the command bar holds
+// focus — the app's home state. It replaces the old shortcut guide (prd R4).
 func CommandHintText() string {
 	return "输入 / 查看命令（/help） · Tab 切换焦点 · PgDn/PgUp 翻页 · Ctrl+C 退出"
+}
+
+// ListHintText is the status-bar guide line while the provider list holds
+// focus: typing goes nowhere from here (commands live in the command bar), so
+// the line must say what DOES work instead of going silent — otherwise Tab-ed
+// away users read the silent keyboard as a hang (10-16 freeze report).
+func ListHintText() string {
+	return "↑↓ 切换监测对象 · 命令请回命令栏（Tab 切换焦点）"
+}
+
+// DetailHintText is the status-bar guide line while the detail view holds
+// focus (scrolling only; same anti-silence rationale as ListHintText).
+func DetailHintText() string {
+	return "PgDn/PgUp 滚动详情 · 命令请回命令栏（Tab 切换焦点）"
 }
 
 // CmdPlaceholderText is the grayed hint shown inside the empty command input.

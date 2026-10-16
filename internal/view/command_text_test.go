@@ -38,6 +38,21 @@ func TestCmdHelpGuideText(t *testing.T) {
 	}
 }
 
+// The away-station guide lines must name the station's real keys AND point
+// back to the command bar — a silent keyboard reads as a hang (10-16 freeze
+// report: Tab-ed away users typed commands into a list that ignores runes).
+func TestFocusHintTexts(t *testing.T) {
+	if got := ListHintText(); !strings.Contains(got, "↑↓") || !strings.Contains(got, "Tab") {
+		t.Errorf("ListHintText() = %q, want ↑↓ guidance and a Tab pointer", got)
+	}
+	if got := DetailHintText(); !strings.Contains(got, "PgDn") || !strings.Contains(got, "Tab") {
+		t.Errorf("DetailHintText() = %q, want PgDn guidance and a Tab pointer", got)
+	}
+	if ListHintText() == CommandHintText() || DetailHintText() == CommandHintText() {
+		t.Error("focus hints must differ from the command-bar hint")
+	}
+}
+
 func TestCommandFeedbackMessages(t *testing.T) {
 	if got := CmdMsgUnknownCommand; !strings.Contains(got, "未知命令") || !strings.Contains(got, "/") {
 		t.Errorf("CmdMsgUnknownCommand = %q, want the 未知命令 wording with a / hint", got)

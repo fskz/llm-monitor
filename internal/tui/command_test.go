@@ -765,3 +765,38 @@ func TestRetiredRuneKeysDoNothing(t *testing.T) {
 		t.Fatal("event loop did not exit after ctx cancel")
 	}
 }
+
+// TestStatusHintFollowsFocus pins the anti-silence contract of the freeze
+// report (10-16): from the list/detail the keyboard looks dead (commands live
+// in the command bar), so the status line must say what DOES work there —
+// and rotateFocus must refresh it on every station change.
+func TestStatusHintFollowsFocus(t *testing.T) {
+	u := newTestUI(t, 1)
+
+	// Home state: the command-bar guide.
+	if got := u.statusBar.GetText(false); got != "[gray]"+view.CommandHintText()+"[white]" {
+		t.Fatalf("home hint = %q, want the command-bar guide", got)
+	}
+
+	// Station 2: the list guide names its keys and the way back. From the
+	// command bar Tab is the bar's own capture (globalKeys yields), so drive
+	// it the way the event loop does.
+	if ev := press(u.cmd, tcell.KeyTab, 0); ev != nil {
+		t.Fatal("Tab on the command bar must be consumed")
+	}
+	if got := u.statusBar.GetText(false); got != "[gray]"+view.ListHintText()+"[white]" {
+		t.Fatalf("list hint = %q, want %q", got, view.ListHintText())
+	}
+
+	// Station 3: the detail guide.
+	u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
+	if got := u.statusBar.GetText(false); got != "[gray]"+view.DetailHintText()+"[white]" {
+		t.Fatalf("detail hint = %q, want %q", got, view.DetailHintText())
+	}
+
+	// Back home: the command-bar guide again.
+	u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
+	if got := u.statusBar.GetText(false); got != "[gray]"+view.CommandHintText()+"[white]" {
+		t.Fatalf("restored hint = %q, want the command-bar guide", got)
+	}
+}

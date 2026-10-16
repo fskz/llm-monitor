@@ -251,8 +251,24 @@ func (u *ui) redrawLocked() {
 
 func (u *ui) renderStatus() {
 	// The guide line is view-owned (prd R5/A6); task flashes reuse the same
-	// status area and the next redraw restores this hint.
-	u.statusBar.SetText("[gray]" + view.CommandHintText() + "[white]")
+	// status area and the next redraw restores this hint. The line tracks the
+	// FOCUS station: from the list/detail, typing does nothing (commands live
+	// in the command bar), so the hint says what does work there — a silent
+	// keyboard reads as a hang (10-16 freeze report).
+	u.statusBar.SetText("[gray]" + u.focusHintText() + "[white]")
+}
+
+// focusHintText picks the view-owned guide line for whichever station holds
+// focus. Safe on a dormant app (GetFocus returns the seeded focus).
+func (u *ui) focusHintText() string {
+	switch u.app.GetFocus() {
+	case u.overview.list:
+		return view.ListHintText()
+	case u.detailView:
+		return view.DetailHintText()
+	default:
+		return view.CommandHintText()
+	}
 }
 
 // globalKeys is the application-level capture. Task 10-16 step 2: the legacy
@@ -280,7 +296,9 @@ func (u *ui) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 
 // rotateFocus walks the three focus stations (Q9): command bar → provider
 // list → detail view → command bar. Focus lands with app.SetFocus directly
-// on the control, never through Flex delegation (red line §6-4).
+// on the control, never through Flex delegation (red line §6-4). The status
+// hint follows the station — tview draws right after the consumed key event,
+// so the new line is visible immediately.
 func (u *ui) rotateFocus() {
 	switch u.app.GetFocus() {
 	case u.overview.list:
@@ -290,6 +308,7 @@ func (u *ui) rotateFocus() {
 	default: // command bar (or anything else): start from the list
 		u.app.SetFocus(u.overview.list)
 	}
+	u.renderStatus()
 }
 
 // modalOpen reports whether an overlay page is visible.
@@ -327,6 +346,7 @@ func (u *ui) dismissModal() {
 	formDismissHook = nil
 	if u.cmd != nil {
 		u.app.SetFocus(u.cmd.input)
+		u.renderStatus() // the hint follows focus back to the command bar
 	}
 }
 
