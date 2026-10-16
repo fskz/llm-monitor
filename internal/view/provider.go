@@ -11,6 +11,8 @@ import (
 // is strict instead of defaulting numeric fields, so a client that omits a
 // numeric field gets an explicit error rather than a silent configuration
 // it never asked for. The prompt is the only defaulted field.
+// DUAL-SYNC: web/app.js defaultPrompt() must return this exact text —
+// locked by fmt_sync_test.go (review-fixpack-2 F15).
 const DefaultPrompt = "请回复一个词：pong（这是一条连通性探测消息，请简短回复）"
 
 // ProviderForm is the editable configuration of one provider as submitted

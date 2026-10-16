@@ -27,7 +27,13 @@ const STATUS_TEXT = {
   cancelled: "已取消",
 };
 
-/* ---------- helpers ---------- */
+/* ---------- helpers ----------
+ * DUAL-SYNC CONTRACT (review-fixpack-2 F14/F15): the fmt* functions below
+ * and defaultPrompt() are the web-side copies of the single Go owners in
+ * internal/view (report.go Fmt* family, provider.go DefaultPrompt). They are
+ * locked verbatim by internal/view/fmt_sync_test.go — editing one side
+ * requires consciously mirroring the other (same rule as STATUS_TEXT,
+ * status.go). */
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -57,8 +63,10 @@ function fmtMs(v) {
 
 function fmtTPS(v) { return v == null ? "—" : v.toFixed(1) + " tok/s"; }
 // TPOT is the reciprocal view of decode TPS over the same evidence
-// (usage-enabled ok samples): ms per output token.
-function fmtTPOT(decodeTps) { return decodeTps == null ? "—" : (1000 / decodeTps).toFixed(1) + " ms/tok"; }
+// (usage-enabled ok samples): ms per output token. <=0 guards like the Go
+// owner (view.FmtTPOT) even though store-derived decode TPS is always
+// positive — manual JSON edits must not yield "Infinity ms/tok".
+function fmtTPOT(decodeTps) { return decodeTps == null || decodeTps <= 0 ? "—" : (1000 / decodeTps).toFixed(1) + " ms/tok"; }
 // Flip ("jitter") rate with a qualitative band: <5% 稳定, 5-20% 波动, >20% 频繁翻转.
 function fmtFlip(r) {
   if (r == null) return "—";
@@ -398,7 +406,11 @@ function renderResults(page) {
 
 /* ---------- provider dialog ---------- */
 
-function defaultPrompt() { return "请回复： pong"; }
+// DUAL-SYNC: must equal view.DefaultPrompt (internal/view/provider.go);
+// locked by internal/view/fmt_sync_test.go. The panel used to prefill a
+// shorter prompt, silently making web-created objects probe with a
+// different request body than TUI/API-created ones.
+function defaultPrompt() { return "请回复一个词：pong（这是一条连通性探测消息，请简短回复）"; }
 
 // Fallback new-provider prefill when /api/settings has not loaded yet
 // (fields mirror the settings API's defaults object).

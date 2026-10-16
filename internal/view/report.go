@@ -42,6 +42,12 @@ var reportTmplFuncs = template.FuncMap{
 	"reportMaxRows": func() int { return ReportMaxRows },
 }
 
+// pctOrDash / FmtTPS / FmtTPOT / FmtFlip / FmtMs are the single GO owners of
+// the shared formatting semantics. web/app.js keeps JS copies of the same
+// functions — they are locked verbatim against this file by
+// fmt_sync_test.go (review-fixpack-2 F14): changing any format here means
+// consciously mirroring web/app.js (same rule as the STATUS_TEXT tables).
+
 func pctOrDash(p *float64) string {
 	if p == nil {
 		return "—"
