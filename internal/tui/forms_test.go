@@ -135,7 +135,8 @@ func TestConfirmDeleteCancelPaths(t *testing.T) {
 			cancelled := false
 			done := deleteDoneFunc(Deps{Store: st}, ids[0],
 				func() { t.Error("onDone must not fire on cancel") },
-				func() { cancelled = true })
+				func() { cancelled = true },
+				func(msg string) { t.Errorf("onFail must not fire on cancel, got %q", msg) })
 
 			done(tc.idx, "")
 
@@ -234,5 +235,49 @@ func TestGlobalKeysPassThroughWhenModalOpen(t *testing.T) {
 	}
 	if u.detail.filters.window != 24*time.Hour {
 		t.Fatalf("detail-focused runes changed the window to %v", u.detail.filters.window)
+	}
+}
+
+// review-fixpack-2 F12: when the STORE delete fails (e.g. the object was
+// already deleted from the web panel), the modal must still close (onFail,
+// never stuck) and onDone must NOT fire; a successful delete still runs the
+// normal done path.
+func TestConfirmDeleteStoreFailureClosesModal(t *testing.T) {
+	st, _ := store.New(t.TempDir())
+	ids := seedProviders(t, st, 1)
+
+	var failMsg string
+	done := deleteDoneFunc(Deps{Store: st}, ids[0],
+		func() { t.Error("onDone must not fire when the store delete failed") },
+		func() { t.Error("onCancel must not fire for the delete button") },
+		func(msg string) { failMsg = msg })
+
+	// Delete the provider behind the modal's back first: DeleteProvider now
+	// fails with "unknown provider".
+	if _, err := st.GetProvider(ids[0]); !err {
+		t.Fatal("seed provider missing")
+	}
+	if derr := st.DeleteProvider(ids[0]); derr != nil {
+		t.Fatalf("pre-delete: %v", derr)
+	}
+	done(0, "")
+
+	if failMsg == "" {
+		t.Fatal("onFail must fire with the store error")
+	}
+}
+
+// review-fixpack-2 F12: /edit on a provider that vanished (deleted from the
+// web panel) must mark the dialog gone instead of silently mounting a
+// "new" form.
+func TestOpenEditFormTargetGone(t *testing.T) {
+	st, _ := store.New(t.TempDir())
+	ids := seedProviders(t, st, 1)
+	if err := st.DeleteProvider(ids[0]); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	d := openForm(nil, Deps{Store: st}, ids[0], nil)
+	if !d.gone {
+		t.Fatal("edit dialog for a vanished provider must be marked gone")
 	}
 }

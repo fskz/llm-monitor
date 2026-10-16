@@ -56,7 +56,22 @@ type ui struct {
 	// goroutines consult it before QueueUpdateDraw, which would otherwise
 	// block forever on a dead loop (review fixpack #5).
 	quit chan struct{}
+
+	// Flash messages carry a timestamp: focus rotation and redraws rewrite
+	// the status line with the station hint, but a fresh task flash (report
+	// path, probe result) survives them for flashTTL (review-fixpack-2 F13 —
+	// Tab used to erase an export path instantly).
+	flashMsg string
+	flashAt  time.Time
+	// detailRenderedID is the provider the detail pane last rendered; when the
+	// selection falls back to another provider (the selected one vanished),
+	// the pagination cursors must reset with it (review-fixpack-2 F10).
+	detailRenderedID int
 }
+
+// flashTTL is how long a status flash survives focus rotation/redraws before
+// the station hint takes the line back.
+const flashTTL = 5 * time.Second
 
 // Run blocks the main goroutine on the TUI event loop and returns when the
 // user quits (/quit through the bottom command bar, or Ctrl+C which is
@@ -233,10 +248,20 @@ func (u *ui) redrawFromDetail() { u.redrawLocked() }
 // redrawLocked refreshes both panes and the status bar. Caller must be on
 // the app goroutine.
 func (u *ui) redrawLocked() {
-	// Remember scroll position of the detail view across the redraw.
-	_, offsetY := u.detailView.GetScrollOffset()
+	// Remember scroll position of the detail view across the redraw. The
+	// offset is (row, column) — the previous `_, offsetY` binding read the
+	// COLUMN (always 0) and silently reset the detail scroll to the top on
+	// every 5s redraw (review-fixpack-2 F16, found while testing F11).
+	row, _ := u.detailView.GetScrollOffset()
 	u.overview.refresh()
 	if id := u.overview.selectedID(); id > 0 {
+		// A selection change that bypassed selectProvider (the overview's
+		// deleted-provider fallback) still resets the detail pagination — the
+		// cursors belong to one provider's record sequence only.
+		if id != u.detailRenderedID {
+			u.detail.resetPaging()
+			u.detailRenderedID = id
+		}
 		if p, ok := u.deps.Store.GetProvider(id); ok {
 			u.detailView.SetText(u.detail.renderText(p))
 		} else {
@@ -245,17 +270,32 @@ func (u *ui) redrawLocked() {
 	} else {
 		u.detailView.SetText("[gray]暂无监测对象[white]")
 	}
-	u.detailView.ScrollTo(offsetY, 0)
+	u.detailView.ScrollTo(row, 0)
 	u.renderStatus()
 }
 
 func (u *ui) renderStatus() {
+	// A fresh flash outranks the station hint (focus rotation used to erase
+	// an export path instantly, review-fixpack-2 F13); after flashTTL the
+	// view-owned guide line returns.
+	if msg := u.currentFlash(); msg != "" {
+		u.statusBar.SetText(msg)
+		return
+	}
 	// The guide line is view-owned (prd R5/A6); task flashes reuse the same
-	// status area and the next redraw restores this hint. The line tracks the
-	// FOCUS station: from the list/detail, typing does nothing (commands live
-	// in the command bar), so the hint says what does work there — a silent
-	// keyboard reads as a hang (10-16 freeze report).
+	// status area. The line tracks the FOCUS station: from the list/detail,
+	// typing does nothing (commands live in the command bar), so the hint
+	// says what does work there — a silent keyboard reads as a hang
+	// (10-16 freeze report).
 	u.statusBar.SetText("[gray]" + u.focusHintText() + "[white]")
+}
+
+// currentFlash returns the not-yet-expired flash message, or "".
+func (u *ui) currentFlash() string {
+	if u.flashMsg != "" && time.Since(u.flashAt) < flashTTL {
+		return u.flashMsg
+	}
+	return ""
 }
 
 // focusHintText picks the view-owned guide line for whichever station holds
@@ -318,13 +358,24 @@ func (u *ui) modalOpen() bool {
 }
 
 // openFormModal mounts the add (id==0) or edit form as a centered overlay.
+// An edit whose target vanished (deleted from the web panel while the
+// command was in flight) never opens: silently degrading into a "new" form
+// would create an unrelated object the user believes they just edited
+// (review-fixpack-2 F12).
 func (u *ui) openFormModal(id int) {
 	d := openForm(u.app, u.deps, id, u.afterMutation)
+	if d.gone {
+		u.setStatus("[gray]监测对象已不存在[-]")
+		return
+	}
 	formDismissHook = u.dismissModal
 	u.pages.AddAndSwitchToPage("modal", d.primitive(), true)
 }
 
-// openDeleteModal mounts the delete confirmation over the UI.
+// openDeleteModal mounts the delete confirmation over the UI. onFail closes
+// the modal and flashes the store error in red: a failed delete must not
+// leave a stuck modal with the engine/store divergence invisible
+// (review-fixpack-2 F12).
 func (u *ui) openDeleteModal(id int) {
 	modal := confirmDelete(u.app, u.deps, id,
 		func() { // confirmed delete
@@ -332,6 +383,10 @@ func (u *ui) openDeleteModal(id int) {
 			u.afterMutation()
 		},
 		u.dismissModal, // cancel (取消 button / Esc) — just close, store untouched
+		func(msg string) { // store delete failed
+			u.dismissModal()
+			u.setStatus("[red]" + tviewEscape(msg) + "[-]")
+		},
 	)
 	formDismissHook = u.dismissModal // Esc/route-out reuses the same dismiss
 	u.pages.AddAndSwitchToPage("modal", modal, true)
@@ -393,7 +448,10 @@ func (u *ui) toggleWeb() {
 	u.setStatus("[green]Web 面板：[-]" + url + " [gray]（/web 关闭）[-]")
 }
 
-// setStatus writes the one-line message area.
+// setStatus writes the one-line message area as a flash with a timestamp
+// (see flashTTL).
 func (u *ui) setStatus(msg string) {
+	u.flashMsg = msg
+	u.flashAt = time.Now()
 	u.statusBar.SetText(msg)
 }

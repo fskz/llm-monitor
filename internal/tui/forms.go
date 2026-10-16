@@ -51,6 +51,9 @@ type formDialog struct {
 	message string // last validation error, rendered in red
 	msgView *tview.TextView
 	onDone  func() // redraw after a successful mutation
+	// gone marks an edit dialog whose provider disappeared before mount; the
+	// caller must not open it (review-fixpack-2 F12).
+	gone bool
 }
 
 // openForm mounts the modal form over the UI. For add, editID is 0 and the
@@ -84,6 +87,12 @@ func openForm(app *tview.Application, deps Deps, editID int, onDone func()) *for
 				Enabled: p.Enabled, IncludeUsage: p.IncludeUsage,
 			}
 			title = "编辑监测对象（" + p.Name + "）"
+		} else {
+			// Target deleted from another end (web panel) while the /edit was
+			// in flight. Mounting anyway would silently prefill the NEW-form
+			// defaults under an edit title; the caller flashes instead.
+			d.gone = true
+			return d
 		}
 	}
 
@@ -284,8 +293,10 @@ func (d *formDialog) close() {
 // confirmation modal). tview's Modal done contract: button i
 // fires done(i, label), Esc fires done(-1, "") — both cancel paths (取消
 // button, Esc) must dismiss the modal without touching the store (review
-// fixpack #2); only idx==0 deletes.
-func confirmDelete(app *tview.Application, deps Deps, id int, onDone, onCancel func()) *tview.Modal {
+// fixpack #2); only idx==0 deletes. onFail fires when the STORE delete
+// failed: the modal still closes (never stuck) and the error reaches the
+// status line (review-fixpack-2 F12).
+func confirmDelete(app *tview.Application, deps Deps, id int, onDone, onCancel func(), onFail func(msg string)) *tview.Modal {
 	p, ok := deps.Store.GetProvider(id)
 	name := strconv.Itoa(id)
 	if ok {
@@ -294,20 +305,29 @@ func confirmDelete(app *tview.Application, deps Deps, id int, onDone, onCancel f
 	modal := tview.NewModal().
 		SetText("删除监测对象「" + tview.Escape(name) + "」？历史记录将一并删除。").
 		AddButtons([]string{"删除", "取消"})
-	modal.SetDoneFunc(deleteDoneFunc(deps, id, onDone, onCancel))
+	modal.SetDoneFunc(deleteDoneFunc(deps, id, onDone, onCancel, onFail))
 	return modal
 }
 
 // deleteDoneFunc is the confirm modal's done handler, split out so the
 // button/Esc matrix can be tested without a screen.
-func deleteDoneFunc(deps Deps, id int, onDone, onCancel func()) func(idx int, label string) {
+func deleteDoneFunc(deps Deps, id int, onDone, onCancel func(), onFail func(msg string)) func(idx int, label string) {
 	return func(idx int, label string) {
 		switch idx {
 		case 0: // 删除
 			if deps.Mutator != nil {
-				deps.Mutator.Remove(id) // cancels the in-flight probe first
+				deps.Mutator.Remove(id) // cancels the in-flight probe first (§4.1)
 			}
-			if err := deps.Store.DeleteProvider(id); err == nil && onDone != nil {
+			if err := deps.Store.DeleteProvider(id); err != nil {
+				// The engine already dropped the runner; the store entry
+				// survives. Close the modal and surface the divergence — the
+				// user can retry /delete or restart to converge.
+				if onFail != nil {
+					onFail("删除失败，该对象已停止调度（可重试 /delete）：" + err.Error())
+				}
+				return
+			}
+			if onDone != nil {
 				onDone()
 			}
 		default: // 1 = 取消 button, -1 = Esc — close without touching the store

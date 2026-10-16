@@ -14,8 +14,10 @@ import "strings"
 
 // CommandHintText is the status-bar guide line while the command bar holds
 // focus — the app's home state. It replaces the old shortcut guide (prd R4).
+// Record paging is a command (/page), not a key: from the command bar PgDn
+// does nothing, so the guide must not promise it.
 func CommandHintText() string {
-	return "输入 / 查看命令（/help） · Tab 切换焦点 · PgDn/PgUp 翻页 · Ctrl+C 退出"
+	return "输入 / 查看命令（/help） · Tab 切换焦点 · Ctrl+C 退出"
 }
 
 // ListHintText is the status-bar guide line while the provider list holds
@@ -56,6 +58,15 @@ const (
 	// CmdMsgHelpListed: /help rendered the full command list into the detail
 	// pane; the listing itself is temporary until the next redraw.
 	CmdMsgHelpListed = "全部命令已列出（输入 / 可随时唤出菜单）"
+	// CmdMsgAmbiguousCommand: Enter in the command phase with several
+	// candidates. Firing the highlighted entry would make a bare "/" execute
+	// /quit, the registry's first entry (review-fixpack-2 F12) — keep typing
+	// or Tab-complete instead.
+	CmdMsgAmbiguousCommand = "匹配多条命令：继续输入或 Tab 补全"
+	// CmdMsgPageNoMore: /page next on the newest-and-oldest boundary.
+	CmdMsgPageNoMore = "已是最后一页"
+	// CmdMsgPageNoPrev: /page prev on the first page.
+	CmdMsgPageNoPrev = "已是第一页"
 )
 
 // CmdMsgNoArg formats the feedback for a zero-argument command that received

@@ -113,8 +113,10 @@ func findListener(start int) (net.Listener, int, error) {
 	return nil, 0, fmt.Errorf("no free port on 127.0.0.1 in range %d-%d", start, start+portTries-1)
 }
 
-// openBrowser launches the system browser for url; failure is non-fatal and
-// the URL is always printed so it can be opened manually (§5.2).
+// openBrowser launches the system browser for url. Failure is non-fatal and
+// silent: the URL is already on the status line (toggleWeb), and printing to
+// stdout while tcell owns the terminal in raw mode would garble the screen
+// (review-fixpack-2 F13 — the old Printf did exactly that).
 func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -126,7 +128,6 @@ func openBrowser(url string) {
 		cmd = exec.Command("xdg-open", url)
 	}
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("自动打开浏览器失败（%v）；请手动访问 %s\n", err, url)
 		return
 	}
 	// Reap the child (review fixpack #4): without a Wait the helper process

@@ -42,9 +42,11 @@ type command struct {
 	run func(u *ui, arg string)
 }
 
-// commands is the 14-entry registry (prd R1). Assembled in init() like
-// mos-runner: /help closes over the table itself, which a var initializer
-// could not reference without a cycle.
+// commands is the 15-entry registry (prd R1 + review-fixpack-2 F10: /page).
+// Assembled in init() like mos-runner: /help closes over the table itself,
+// which a var initializer could not reference without a cycle. No command
+// name may be a prefix of another — Enter's unique-prefix execution and the
+// ambiguous-entry guard below both lean on that invariant.
 var commands []command
 
 func init() {
@@ -88,6 +90,25 @@ func init() {
 					u.detail.cycleSource()
 				} else {
 					u.detail.setSource(arg)
+				}
+				u.redrawFromDetail()
+			}},
+		// /page pages the detail records (review-fixpack-2 F10): the table
+		// cursor machinery predates the command bar but was unreachable once
+		// the rune keys retired. Bare form = next page (the common direction),
+		// unlike the filter commands' cycling.
+		{name: "/page", args: []string{"next", "prev"}, desc: "明细记录翻页（不带参数=下一页）", needSel: true,
+			run: func(u *ui, arg string) {
+				if arg == "prev" {
+					if !u.detail.pagePrev() {
+						u.setStatus("[gray]" + view.CmdMsgPageNoPrev + "[-]")
+						return
+					}
+				} else {
+					if !u.detail.pageNext() {
+						u.setStatus("[gray]" + view.CmdMsgPageNoMore + "[-]")
+						return
+					}
 				}
 				u.redrawFromDetail()
 			}},
@@ -188,10 +209,18 @@ func (cb *commandBar) menuOpen() bool { return len(cb.menuItems) > 0 }
 
 // drawMenu republishes the menu text. Synchronous SetText only (red line
 // §6-1/2): the view is permanently in the layout, so this never touches
-// Pages or the layout geometry.
+// Pages or the layout geometry. The viewport follows the highlight — the
+// fixed 3-row menu cannot be scrolled by hand (it never gets focus), so
+// without this the highlighted entry walks out of sight (review-fixpack-2
+// F11).
 func (cb *commandBar) drawMenu() {
 	if cb.menu != nil {
 		cb.menu.SetText(cb.menuText())
+		if cb.menuSel > 0 {
+			cb.menu.ScrollTo(cb.menuSel-1, 0) // highlight on the 2nd row, next row visible
+		} else {
+			cb.menu.ScrollTo(0, 0)
+		}
 	}
 }
 
@@ -284,6 +313,16 @@ func (cb *commandBar) execute() {
 	var arg string
 	if cb.menuOpen() {
 		e := cb.menuItems[cb.menuSel]
+		// Command phase with several candidates must NOT fire the highlighted
+		// entry: a bare "/" highlights /quit (registry order), so "/" + Enter
+		// would quit the app (review-fixpack-2 F12). Argument-phase candidates
+		// all share one command — direct-select stays allowed. No command name
+		// prefixes another, so several command candidates always mean the
+		// typed text is a strict ambiguous prefix, never an exact name.
+		if e.arg == "" && len(cb.menuItems) > 1 {
+			cb.flash(view.CmdMsgAmbiguousCommand)
+			return
+		}
 		cmd, arg = e.cmd, e.arg
 	} else {
 		name := text

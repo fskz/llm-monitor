@@ -32,6 +32,7 @@ go build -o llm-monitor ./cmd/llm-monitor
 | `/window` | `1h` / `24h` / `7d` | 时间窗:直选,或裸执行循环切换 |
 | `/revision` | `current` / `all` | 版本(当前 / 全部)筛选 |
 | `/source` | `scheduled` / `manual` / `all` | 来源(定时 / 手动 / 全部)筛选 |
+| `/page` | `next` / `prev` | 明细记录翻页(裸执行=下一页) |
 | `/report` | — | 导出 HTML 报告 |
 | `/web` | — | 拉起 / 关闭浏览器面板 |
 | `/settings` | — | 全局设置 |
@@ -39,7 +40,7 @@ go build -o llm-monitor ./cmd/llm-monitor
 | `/help` | — | 列出全部命令 |
 | `/quit` | — | 退出(优雅停止调度;Ctrl+C 也可) |
 
-结构性浏览键保留:`↑` / `↓`(及 `j` / `k`)列表导航,`Tab` 三站焦点轮转(命令栏 → 列表 → 详情),`PgDn` / `PgUp` 明细翻页。旧单键动作(q / p / r / w / x / n / e / d / , / 1 / 2 / 3 / R / S)已全部移除。
+结构性浏览键保留:`↑` / `↓` 列表导航,`Tab` 三站焦点轮转(命令栏 → 列表 → 详情),详情站点 `PgDn` / `PgUp` 滚动详情(明细翻页走 `/page` 命令)。旧单键动作(q / p / r / w / x / n / e / d / , / 1 / 2 / 3 / R / S)已全部移除。
 
 表单内:`↑↓` 移动字段,`←→` 移动光标,`Enter` 前进,`Esc` 取消。
 

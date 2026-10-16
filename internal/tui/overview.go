@@ -106,7 +106,7 @@ func (o *overviewPane) refresh() {
 		}
 	}
 	if len(providers) == 0 {
-		o.list.AddItem("[gray]暂无监测对象（阶段 4b 支持新建）[-]", "", 0, nil)
+		o.list.AddItem("[gray]暂无监测对象（/new 新建）[-]", "", 0, nil)
 	}
 }
 

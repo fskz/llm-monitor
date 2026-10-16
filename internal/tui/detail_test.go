@@ -168,7 +168,7 @@ func TestOverviewRefreshNoRecursionWithChangedCallback(t *testing.T) {
 	}
 }
 
-// Pagination walks strictly older via (started_at, seq) and PgUp returns
+// Pagination walks strictly older via (started_at, seq); /page prev returns
 // through the cursor stack (web/app.js prevCursors pattern).
 func TestDetailPagination(t *testing.T) {
 	st, err := store.New(t.TempDir())
@@ -191,7 +191,7 @@ func TestDetailPagination(t *testing.T) {
 		t.Fatal("43 rows must produce a next cursor on page 1")
 	}
 
-	// PgDn → page 2 (a real keypress always redraws before the next press).
+	// /page next → page 2 (the command redraws before the next one).
 	if !d.pageNext() {
 		t.Fatal("pageNext must advance with a next cursor present")
 	}
@@ -202,7 +202,7 @@ func TestDetailPagination(t *testing.T) {
 	}
 	d.renderText(p) // the redraw recomputes the page-2 next cursor
 
-	// PgDn → page 3 (23 rows left; 20 shown, 3 remain → hasMore=false).
+	// /page next → page 3 (23 rows left; 20 shown, 3 remain → hasMore=false).
 	if !d.pageNext() {
 		t.Fatal("pageNext page 2→3 must advance")
 	}
@@ -214,7 +214,7 @@ func TestDetailPagination(t *testing.T) {
 		t.Fatal("pageNext on the last page must be a no-op")
 	}
 
-	// PgUp ×2 → back to page 1 (cursor nil).
+	// /page prev ×2 → back to page 1 (cursor nil).
 	if !d.pagePrev() {
 		t.Fatal("pagePrev page 3→2 must move")
 	}

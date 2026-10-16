@@ -215,7 +215,7 @@ func (d *detailPane) resultsTable(p store.Provider, v view.ProviderView) string 
 		w("%s\n", d.resultLine(p, res))
 	}
 	if hasMore {
-		w("[gray]（PgDn 下一页）[white]\n")
+		w("[gray]（/page next 下一页 · /page prev 上一页）[white]\n")
 	}
 	return string(b)
 }

@@ -64,18 +64,19 @@ func statusOf(u *ui) string { return u.statusBar.GetText(true) }
 // --- registry shape (prd R1) ---
 
 func TestCommandRegistryShape(t *testing.T) {
-	if len(commands) != 14 {
-		t.Fatalf("registry has %d commands, want 14", len(commands))
+	if len(commands) != 15 {
+		t.Fatalf("registry has %d commands, want 15", len(commands))
 	}
 	seen := map[string]bool{}
 	wantArgs := map[string][]string{
 		"/window":   {"1h", "24h", "7d"},
 		"/revision": {"current", "all"},
 		"/source":   {"scheduled", "manual", "all"},
+		"/page":     {"next", "prev"},
 	}
 	wantSel := map[string]bool{
 		"/probe": true, "/toggle": true, "/edit": true, "/delete": true,
-		"/window": true, "/revision": true, "/source": true,
+		"/window": true, "/revision": true, "/source": true, "/page": true,
 	}
 	for _, c := range commands {
 		if !strings.HasPrefix(c.name, "/") {
@@ -106,9 +107,17 @@ func TestCommandRegistryShape(t *testing.T) {
 	}
 	for _, name := range []string{"/quit", "/probe", "/report", "/web", "/settings",
 		"/toggle", "/new", "/edit", "/delete", "/window", "/revision", "/source",
-		"/refresh", "/help"} {
+		"/page", "/refresh", "/help"} {
 		if !seen[name] {
 			t.Errorf("registry is missing %s", name)
+		}
+	}
+	// Enter's ambiguous-command guard leans on no name prefixing another.
+	for i := range commands {
+		for j := range commands {
+			if i != j && strings.HasPrefix(commands[j].name, commands[i].name) {
+				t.Errorf("%s is a prefix of %s — breaks the Enter guard", commands[i].name, commands[j].name)
+			}
 		}
 	}
 }
@@ -126,7 +135,7 @@ func TestFilterCommandPhase(t *testing.T) {
 		{in: "hello"},
 		{in: "w/"},
 		{in: "/", want: []string{"/quit", "/probe", "/report", "/web", "/settings", "/toggle",
-			"/new", "/edit", "/delete", "/window", "/revision", "/source", "/refresh", "/help"}, open: true},
+			"/new", "/edit", "/delete", "/window", "/revision", "/source", "/page", "/refresh", "/help"}, open: true},
 		{in: "/w", want: []string{"/web", "/window"}, open: true},
 		{in: "/window", want: []string{"/window"}, open: true},
 		{in: "/zzz"},
@@ -447,13 +456,34 @@ func TestExecuteMenuHighlightedArgumentRuns(t *testing.T) {
 }
 
 func TestExecuteMenuHighlightedCommandRuns(t *testing.T) {
-	// "/w" highlights /web; Enter executes the highlighted command.
+	// review-fixpack-2 F12: a UNIQUE prefix executes on Enter; an AMBIGUOUS
+	// prefix ("/w" matches /web+/window) must NOT fire the highlighted entry
+	// (a bare "/" would otherwise execute /quit, the registry's first entry).
 	u := newTestUI(t, 1)
 	cb := u.cmd
+
+	// Ambiguous: flash + input kept for completion.
 	typeIn(cb, "/w")
-	press(cb, tcell.KeyEnter, 0) // runs /web: no ServerHook → error flash, but input cleared
+	press(cb, tcell.KeyEnter, 0)
+	if got := statusOf(u); !strings.Contains(got, view.CmdMsgAmbiguousCommand) {
+		t.Fatalf("status = %q, want the ambiguous-command flash", got)
+	}
+	if got := cb.input.GetText(); got != "/w" {
+		t.Fatalf("input = %q, must be kept for completion", got)
+	}
+
+	// Bare "/": the worst case — highlights /quit; Enter must not quit.
+	typeIn(cb, "/")
+	press(cb, tcell.KeyEnter, 0)
+	if got := statusOf(u); !strings.Contains(got, view.CmdMsgAmbiguousCommand) {
+		t.Fatalf("status = %q after bare /+Enter, want the ambiguous flash", got)
+	}
+
+	// Unique: executes (runs /web: no ServerHook → error flash, input cleared).
+	typeIn(cb, "/web")
+	press(cb, tcell.KeyEnter, 0)
 	if got := cb.input.GetText(); got != "" {
-		t.Fatalf("input = %q after executing the highlighted command, want cleared", got)
+		t.Fatalf("input = %q after executing the unique command, want cleared", got)
 	}
 	if got := statusOf(u); !strings.Contains(got, "Web") {
 		t.Fatalf("status = %q, want the /web feedback", got)
@@ -632,7 +662,7 @@ func TestCommandBarScreenFocusMenuAndRotation(t *testing.T) {
 		t.Fatalf("startup focus = %T, want the command input", focus)
 	}
 
-	// A1: "/" opens the full 14-command menu.
+	// A1: "/" opens the full 15-command menu (14 + /page, review-fixpack-2).
 	screen.InjectKey(tcell.KeyRune, '/', tcell.ModNone)
 	time.Sleep(150 * time.Millisecond)
 	var open bool
@@ -643,11 +673,14 @@ func TestCommandBarScreenFocusMenuAndRotation(t *testing.T) {
 		items = len(u.cmd.menuItems)
 		menuText = u.cmd.menu.GetText(true)
 	})
-	if !open || items != 14 {
-		t.Fatalf("menu after /: open=%v items=%d, want the full 14", open, items)
+	if !open || items != 15 {
+		t.Fatalf("menu after /: open=%v items=%d, want the full 15", open, items)
 	}
 	if !strings.Contains(menuText, "/help") {
 		t.Fatalf("menu text %q must list /help", menuText)
+	}
+	if !strings.Contains(menuText, "/page") {
+		t.Fatalf("menu text %q must list /page", menuText)
 	}
 
 	// A1: prefix filtering leaves /web + /window.
@@ -798,5 +831,64 @@ func TestStatusHintFollowsFocus(t *testing.T) {
 	u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
 	if got := u.statusBar.GetText(false); got != "[gray]"+view.CommandHintText()+"[white]" {
 		t.Fatalf("restored hint = %q, want the command-bar guide", got)
+	}
+}
+
+// review-fixpack-2 F10: /page drives the detail pagination and flashes at
+// the boundaries instead of silently doing nothing.
+func TestPageCommand(t *testing.T) {
+	u := newTestUI(t, 1)
+	cb := u.cmd
+	p := u.deps.Store.GetProviders()[0]
+	seedResults(t, u.deps.Store, p.ID, pageSize+5) // 25 rows → 2 pages
+	u.redrawLocked()                                // compute the page-1 next cursor
+	if u.detail.nextCursor == nil {
+		t.Fatal("25 rows must yield a next cursor on page 1")
+	}
+
+	typeIn(cb, "/page n") // arg phase: [next] highlighted → Enter direct-selects
+	press(cb, tcell.KeyEnter, 0)
+	if u.detail.pageCursor == nil {
+		t.Fatal("/page next must advance to page 2")
+	}
+	u.redrawLocked() // recompute nextCursor from page 2 (5 rows, no more)
+	if u.detail.nextCursor != nil {
+		t.Fatal("page 2 is the last page")
+	}
+
+	// Boundary: /page next on the last page flashes instead of no-op.
+	typeIn(cb, "/page next")
+	press(cb, tcell.KeyEnter, 0)
+	if got := statusOf(u); !strings.Contains(got, view.CmdMsgPageNoMore) {
+		t.Fatalf("status = %q, want the last-page flash", got)
+	}
+
+	// /page prev walks back to page 1, then flashes 已是第一页.
+	typeIn(cb, "/page p")
+	press(cb, tcell.KeyEnter, 0)
+	if u.detail.pageCursor != nil {
+		t.Fatal("/page prev must return to the newest page (nil cursor)")
+	}
+	typeIn(cb, "/page prev")
+	press(cb, tcell.KeyEnter, 0)
+	if got := statusOf(u); !strings.Contains(got, view.CmdMsgPageNoPrev) {
+		t.Fatalf("status = %q, want the first-page flash", got)
+	}
+}
+
+// review-fixpack-2 F11: the fixed 3-row menu viewport follows the highlight,
+// so ↓ can never walk the highlight out of sight.
+func TestMenuViewportFollowsHighlight(t *testing.T) {
+	cb := bareBar()
+	typeIn(cb, "/") // full registry: 15 candidates
+	for i := 0; i < 5; i++ {
+		press(cb, tcell.KeyDown, 0)
+	}
+	if cb.menuSel != 5 {
+		t.Fatalf("menuSel = %d after 5×↓, want 5", cb.menuSel)
+	}
+	row, _ := cb.menu.GetScrollOffset() // (row, column)
+	if row != cb.menuSel-1 {
+		t.Fatalf("menu top row = %d, want %d (highlight-1 stays in view)", row, cb.menuSel-1)
 	}
 }

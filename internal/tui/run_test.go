@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -136,5 +137,56 @@ func TestFindListenerSkipsOccupiedPorts(t *testing.T) {
 	}
 	if _, _, err := findListener(65536); err == nil {
 		t.Fatal("findListener(65536) must fail")
+	}
+}
+
+// review-fixpack-2 F13: a status flash survives focus rotation (rotateFocus →
+// renderStatus) for flashTTL; after expiry the station hint returns.
+func TestFlashSurvivesFocusRotation(t *testing.T) {
+	u := newTestUI(t, 1)
+	u.setStatus("[green]报告已导出：/tmp/x.html[-]")
+	if got := statusOf(u); !strings.Contains(got, "报告已导出") {
+		t.Fatalf("status = %q, want the flash", got)
+	}
+
+	// What Tab does: focus change + renderStatus.
+	u.rotateFocus()
+	if got := statusOf(u); !strings.Contains(got, "报告已导出") {
+		t.Fatalf("status after rotation = %q, the flash must survive (was erased by Tab before)", got)
+	}
+
+	// After the TTL the hint takes the line back.
+	u.flashAt = time.Now().Add(-2 * flashTTL)
+	u.renderStatus()
+	if got := statusOf(u); strings.Contains(got, "报告已导出") {
+		t.Fatalf("expired flash must give way to the hint, got %q", got)
+	}
+}
+
+// review-fixpack-2 F10: when the selected provider vanishes and the overview
+// falls back to another provider, the detail pagination resets with it —
+// the cursors belong to one provider's record sequence only.
+func TestRedrawResetsPagingOnSelectionFallback(t *testing.T) {
+	u := newTestUI(t, 2)
+	all := u.deps.Store.GetProviders()
+	if len(all) < 2 {
+		t.Fatalf("need 2 providers, got %d", len(all))
+	}
+	second := all[1]
+
+	// Select the second provider and page into its records.
+	u.overview.selected = second.ID
+	u.detail.pageCursor = &pageCursor{startedAt: 1, seq: 1}
+	u.detailRenderedID = second.ID
+
+	// The second provider is deleted from another end (store-direct, like
+	// the web panel would); a redraw falls back to the first provider.
+	if err := u.deps.Store.DeleteProvider(second.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	u.redrawLocked()
+
+	if u.detail.pageCursor != nil {
+		t.Fatal("pagination cursor must reset when the selection falls back")
 	}
 }
