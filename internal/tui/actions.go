@@ -10,9 +10,9 @@ import (
 	"llm-monitor/internal/view"
 )
 
-// Action handlers for the 阶段 4b keys: manual probe (p), report export (r).
-// They run on the app goroutine, mutate state via Deps, and report through
-// the status line — the TUI equivalent of the panel's inline messages.
+// Action handlers for the /probe and /report commands. They run on the app
+// goroutine, mutate state via Deps, and report through the status line — the
+// TUI equivalent of the panel's inline messages.
 
 // exportReport writes the single-file HTML report of one provider with the
 // current detail filters to the user's download-ish location and returns
@@ -53,7 +53,7 @@ func (u *ui) exportReport(p store.Provider) (string, error) {
 // probeNow runs one manual probe for the selected provider on a background
 // goroutine and surfaces the outcome on the status line: the result line on
 // success, the in-flight conflict message on 409-equivalent errors (§4.6).
-// toggleCurrent flips the selected provider's enabled flag (x key): a
+// toggleCurrent flips the selected provider's enabled flag (/toggle): a
 // regular Update — the engine cancels the in-flight probe (persisted
 // cancelled) and stops/resumes the scheduler; manual probes remain
 // available while disabled. Revision is untouched (enabled is not a
@@ -61,7 +61,7 @@ func (u *ui) exportReport(p store.Provider) (string, error) {
 func (u *ui) toggleCurrent() {
 	id := u.overview.selectedID()
 	if id <= 0 {
-		u.setStatus("[gray]请先选择监测对象[-]")
+		u.setStatus("[gray]" + view.CmdMsgNeedSelection + "[-]")
 		return
 	}
 	p, ok := u.deps.Store.GetProvider(id)

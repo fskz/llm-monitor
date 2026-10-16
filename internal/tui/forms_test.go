@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -153,41 +154,85 @@ func TestConfirmDeleteCancelPaths(t *testing.T) {
 
 // While a modal is open, the app-level capture must pass every key through
 // so typing p/r/w/q inside a form field inserts the character instead of
-// triggering probe/export/web/quit (regression: p was swallowed by
-// globalKeys before the fix).
+// triggering actions (regression: p was swallowed by globalKeys before the
+// fix).
+//
+// Task 10-16 step 2: the rune actions are retired (A5), so globalKeys has
+// exactly two remaining behaviors to pin here — the modalOpen passthrough
+// guard and the Tab rotation, which yields while the command bar holds
+// focus (completion wins, red line §6-5). Every former action rune must
+// now pass through at ANY non-command-bar focus: the command bar is the
+// single action entry.
 func TestGlobalKeysPassThroughWhenModalOpen(t *testing.T) {
-	u := &ui{pages: tview.NewPages()}
-	u.pages.AddPage("main", tview.NewBox(), true, true)
-	u.pages.AddAndSwitchToPage("modal", tview.NewBox(), true)
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	u := newUI(tview.NewApplication(), Deps{Store: st})
 
+	// Modal up: every key passes through, Tab included (the rotation must
+	// not fight the form's own navigation).
+	u.pages.AddAndSwitchToPage("modal", tview.NewBox(), true)
 	if !u.modalOpen() {
 		t.Fatal("modal must be reported open")
 	}
-	for _, r := range []rune{'p', 'r', 'w', 'q', 'Q', 'x'} {
+	for _, r := range []rune{'p', 'r', 'w', 'q', 'Q', 'x', ',', 'n', 'e', 'd', '1', '2', '3', 'R', 'S'} {
 		ev := u.globalKeys(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
 		if ev == nil {
 			t.Fatalf("key %q must pass through while a modal is open", r)
 		}
 	}
-
-	// And with no modal, the action keys are consumed again (p/r hit the
-	// "no provider selected" guard; w starts the panel lifecycle and fails
-	// on the invalid port — all without touching a nil dependency).
-	st, err := store.New(t.TempDir())
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
+	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev == nil {
+		t.Fatal("Tab must pass through while a modal is open")
 	}
-	u.app = tview.NewApplication()
-	u.deps = Deps{Store: st}
-	u.overview = newOverviewPane(st, nil, nil)
-	u.statusBar = tview.NewTextView().SetDynamicColors(true)
-	u.web = newWebPanel(Deps{})
-	u.pages.RemovePage("modal")
-	u.pages.SwitchToPage("main")
-	for _, r := range []rune{'p', 'r', 'w'} {
+	u.dismissModal() // restores the command-bar focus
+
+	// Command bar focused: everything passes through — Tab is decided by the
+	// bar's own capture (menu completion).
+	for _, r := range []rune{'p', 'r', 'w', 'q'} {
 		ev := u.globalKeys(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
-		if ev != nil {
-			t.Fatalf("key %q must be consumed with no modal open (got %v)", r, ev)
+		if ev == nil {
+			t.Fatalf("key %q must pass through while the command bar is focused", r)
 		}
+	}
+	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev == nil {
+		t.Fatal("app-level Tab must yield while the command bar holds focus")
+	}
+
+	// List focused (A5, handler half): all retired action runes pass through
+	// with no side effects; only Tab is consumed and still rotates.
+	u.app.SetFocus(u.overview.list)
+	for _, r := range []rune{'p', 'r', 'w', 'q', 'Q', 'x', ',', 'n', 'e', 'd', '1', '2', '3', 'R', 'S'} {
+		ev := u.globalKeys(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+		if ev == nil {
+			t.Fatalf("rune %q must pass through — the command bar is the only action entry (A5)", r)
+		}
+	}
+	if u.modalOpen() {
+		t.Fatal("no rune may open a modal")
+	}
+	if u.detail.filters.window != 24*time.Hour || u.detail.filters.revision != "" ||
+		u.detail.filters.source != store.SourceScheduled {
+		t.Fatalf("no rune may change the detail filters, got window=%v revision=%q source=%q",
+			u.detail.filters.window, u.detail.filters.revision, u.detail.filters.source)
+	}
+	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev != nil {
+		t.Fatal("Tab with focus on the list must be consumed by the rotation")
+	}
+	if got := u.app.GetFocus(); got != u.detailView {
+		t.Fatalf("focus after Tab = %T, want the detail view", got)
+	}
+
+	// Detail focused (former detail-capture scope): runes pass through there
+	// too — the capture itself is retired (its behavioral half runs on the
+	// simulation screen, TestRetiredRuneKeysDoNothing).
+	for _, r := range []rune{'1', '2', '3', 'R', 'S'} {
+		ev := u.globalKeys(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+		if ev == nil {
+			t.Fatalf("rune %q must pass through with focus on the detail view (A5)", r)
+		}
+	}
+	if u.detail.filters.window != 24*time.Hour {
+		t.Fatalf("detail-focused runes changed the window to %v", u.detail.filters.window)
 	}
 }

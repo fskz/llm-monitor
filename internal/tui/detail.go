@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
 	"llm-monitor/internal/store"
@@ -332,31 +331,39 @@ func (d *detailPane) cycleSource() {
 	d.resetPaging()
 }
 
-// inputCapture routes the detail-pane filter/paging keys; anything else
-// bubbles up to the application-level capture.
-func (d *detailPane) inputCapture(app *tview.Application, redraw func()) func(*tcell.EventKey) *tcell.EventKey {
-	return func(ev *tcell.EventKey) *tcell.EventKey {
-		if ev.Key() != tcell.KeyRune {
-			return ev
-		}
-		switch ev.Rune() {
-		case keyWindow1h:
-			d.filters.window = time.Hour
-			d.resetPaging()
-		case keyWindow24h:
-			d.filters.window = 24 * time.Hour
-			d.resetPaging()
-		case keyWindow7d:
-			d.filters.window = 7 * 24 * time.Hour
-			d.resetPaging()
-		case keyRevision:
-			d.cycleRevision()
-		case keySource:
-			d.cycleSource()
-		default:
-			return ev
-		}
-		redraw()
-		return nil
+// setWindow/setRevision/setSource apply a /window /revision /source argument
+// directly (task 10-16 design §4). They are the single owners of the
+// direct-selection path the old 1/2/3 rune keys used to inline here — the
+// command table is their only caller since the rune captures retired (step
+// 2). Argument validation (the enum membership) lives in the command layer;
+// an unknown value falls back to the listed default branch.
+func (d *detailPane) setWindow(arg string) {
+	switch arg {
+	case "1h":
+		d.filters.window = time.Hour
+	case "7d":
+		d.filters.window = 7 * 24 * time.Hour
+	default: // "24h"
+		d.filters.window = 24 * time.Hour
 	}
+	d.resetPaging()
+}
+
+func (d *detailPane) setRevision(arg string) {
+	if arg == "all" {
+		d.filters.revision = "all"
+	} else { // "current"
+		d.filters.revision = ""
+	}
+	d.resetPaging()
+}
+
+func (d *detailPane) setSource(arg string) {
+	switch arg {
+	case store.SourceManual, store.SourceAll:
+		d.filters.source = arg
+	default: // store.SourceScheduled
+		d.filters.source = store.SourceScheduled
+	}
+	d.resetPaging()
 }

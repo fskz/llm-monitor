@@ -37,19 +37,19 @@ type Deps struct {
 // refreshInterval matches the web panel polling cadence (web/app.js: 5s).
 const refreshInterval = 5 * time.Second
 
-// ui is the assembled application: panes, shared selection state and the
-// redraw pipeline. All tview mutations happen on the app goroutine (direct
-// during setup, via QueueUpdateDraw afterwards).
+// ui is the assembled application: panes, the command bar, shared selection
+// state and the redraw pipeline. All tview mutations happen on the app
+// goroutine (direct during setup, via QueueUpdateDraw afterwards).
 type ui struct {
 	app      *tview.Application
 	deps     Deps
 	overview *overviewPane
 	detail   *detailPane
 	web      *webPanel
+	cmd      *commandBar
 
 	detailView *tview.TextView // right pane target (rebuilt content)
 	statusBar  *tview.TextView
-	right      *tview.Flex
 	pages      *tview.Pages // main layout + modal overlays (forms, confirm)
 
 	// quit is closed once the event loop is down (Run returned); background
@@ -59,10 +59,11 @@ type ui struct {
 }
 
 // Run blocks the main goroutine on the TUI event loop and returns when the
-// user quits (q; Ctrl+C is delivered as a key in raw mode and stops the app
-// via tview itself) or when ctx is cancelled (external SIGINT/SIGTERM).
-// Either way the caller proceeds down the graceful-shutdown path; the
-// returned error is ctx.Err() for a context exit and nil for a user quit.
+// user quits (/quit through the bottom command bar, or Ctrl+C which is
+// delivered as a key in raw mode and stops the app via tview itself) or when
+// ctx is cancelled (external SIGINT/SIGTERM). Either way the caller proceeds
+// down the graceful-shutdown path; the returned error is ctx.Err() for a
+// context exit and nil for a user quit.
 //
 // When no terminal is available (headless run, stdin not a tty) tview cannot
 // initialize a screen; Run then keeps the process alive in degraded no-UI
@@ -80,18 +81,27 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 	if screen != nil {
 		app.SetScreen(screen)
 	}
+	u := newUI(app, deps)
+	return u.eventLoop(ctx)
+}
 
+// newUI assembles the whole interface and returns it ready for the event
+// loop (task 10-16: split out of run so tests can drive a fully wired ui on
+// a dormant application without starting Run).
+//
+// Layout (design.md §1, Q10): the two existing columns stay unchanged in a
+// main row; below it sit three full-width bands — the permanently-present
+// 3-line command menu (empty when closed), the bordered command input and
+// the status line migrated out of the right column's bottom.
+func newUI(app *tview.Application, deps Deps) *ui {
 	u := &ui{app: app, deps: deps, quit: make(chan struct{})}
 	u.detail = newDetailPane(deps.Store, engineOrNil(deps.Engine))
 	u.overview = newOverviewPane(deps.Store, engineOrNil(deps.Engine), u.selectProvider)
 	u.web = newWebPanel(deps)
+	u.cmd = newCommandBar(u)
 
 	u.detailView = tview.NewTextView().SetDynamicColors(true).SetScrollable(true)
 	u.statusBar = tview.NewTextView().SetDynamicColors(true)
-
-	u.right = tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(u.detailView, 0, 1, true).
-		AddItem(u.statusBar, 1, 0, false)
 
 	listHeader := tview.NewTextView().SetDynamicColors(true).
 		SetText("[::b]监测对象（↑↓ 切换）[-]")
@@ -99,25 +109,39 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 		AddItem(listHeader, 1, 0, false).
 		AddItem(u.overview.list, 0, 1, true)
 
-	root := tview.NewFlex().
+	// Exactly one Focus=true child per Flex level (red line §6-4): focus
+	// moves with app.SetFocus directly onto the control, never through Flex
+	// delegation, so the flags only seed the initial tree resolution.
+	main := tview.NewFlex().
 		AddItem(listPane, 28, 0, true).
-		AddItem(u.right, 0, 4, false)
+		AddItem(u.detailView, 0, 4, false)
+	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(main, 0, 1, true).
+		AddItem(u.cmd.menu, 3, 0, false).
+		AddItem(u.cmd.input, 3, 0, false).
+		AddItem(u.statusBar, 1, 0, false)
 
 	// Pages carry the main layout plus modal overlays (forms, delete
 	// confirm); overlays are added on demand and hidden again on close.
 	u.pages = tview.NewPages().AddPage("main", root, true, true)
 
 	u.overview.wireSelection()
-	u.detailView.SetInputCapture(u.detail.inputCapture(app, u.redrawFromDetail))
-	u.overview.list.SetInputCapture(u.overviewKeys)
 	app.SetInputCapture(u.globalKeys)
 	app.SetRoot(u.pages, true).EnableMouse(false)
+	// After SetRoot (which resets focus onto the root): the command bar owns
+	// the startup focus (Q2).
+	app.SetFocus(u.cmd.input)
 
 	// Initial draw before the loop: selection defaults to the first provider.
 	u.redrawLocked()
+	return u
+}
 
+// eventLoop drives app.Run plus the 5s refresh ticker and owns the shutdown
+// handshake (quit channel, ctx cancellation).
+func (u *ui) eventLoop(ctx context.Context) error {
 	done := make(chan error, 1)
-	go func() { done <- app.Run() }()
+	go func() { done <- u.app.Run() }()
 
 	refresh := time.NewTicker(refreshInterval)
 	defer refresh.Stop()
@@ -132,7 +156,7 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 				// 5s re-read of the store (R3): selection and scroll survive
 				// because both panes restore by id/offset inside redraw.
 				u.queueDraw(func() {
-					u.redrawLocked()
+					u.refreshNow()
 				})
 			}
 		}
@@ -143,7 +167,7 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 		// Stop may race with screen creation inside Run (a Stop before the
 		// screen exists is a no-op), so retry until the app actually exits.
 		for {
-			app.Stop()
+			u.app.Stop()
 			select {
 			case <-done:
 				close(u.quit) // the event loop is down (review fixpack #5)
@@ -165,6 +189,11 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 		return nil // user quit through the TUI
 	}
 }
+
+// refreshNow is the single refresh pipeline shared by the 5s ticker and the
+// /refresh command (design.md §4): re-read the store and redraw both panes,
+// keeping selection by id and the detail scroll offset.
+func (u *ui) refreshNow() { u.redrawLocked() }
 
 // queueDraw runs f on the app goroutine unless the event loop is already
 // down. QueueUpdateDraw blocks on the loop's acknowledgment; after Run has
@@ -196,7 +225,9 @@ func (u *ui) selectProvider(id int) {
 	u.redrawLocked()
 }
 
-// redrawFromDetail is the redraw callback the detail-pane filter keys use.
+// redrawFromDetail is the redraw callback the /window /revision /source
+// command handlers use after changing the detail filters (task 10-16 step 2:
+// the rune capture that used to own this path retired).
 func (u *ui) redrawFromDetail() { u.redrawLocked() }
 
 // redrawLocked refreshes both panes and the status bar. Caller must be on
@@ -219,79 +250,46 @@ func (u *ui) redrawLocked() {
 }
 
 func (u *ui) renderStatus() {
-	f := u.detail.filters
-	u.statusBar.SetText(
-		"[gray]1/2/3 窗口(" + f.windowLabel() + ") · R 版本 · S 来源(" + f.sourceLabel() +
-			") · PgDn/PgUp 翻页 · Tab 切换栏 · q 退出[white]")
+	// The guide line is view-owned (prd R5/A6); task flashes reuse the same
+	// status area and the next redraw restores this hint.
+	u.statusBar.SetText("[gray]" + view.CommandHintText() + "[white]")
 }
 
-// globalKeys handles application-level keys: quit and the actions that must
-// work wherever the focus sits when no modal is open. The app-level capture
-// runs BEFORE the focused primitive, so while a modal (form / delete
-// confirm) is up every key must pass through — otherwise typing p/r/w/q
-// into an input field would trigger probe/export/web/quit instead of
-// inserting the character.
+// globalKeys is the application-level capture. Task 10-16 step 2: the legacy
+// rune actions retired with the command bar (A5), leaving ONE duty — the Tab
+// three-station rotation (cmdInput → list → detailView → cmdInput, Q9). The
+// app-level capture runs BEFORE the focused primitive, so:
+//   - while a modal (form / delete confirm) is up every key must pass
+//     through — otherwise typing into an input field would trigger actions
+//     instead of inserting the character;
+//   - while the command bar holds focus Tab passes through — the bar's own
+//     capture decides (completion wins, red line §6-5).
 func (u *ui) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	if u.modalOpen() {
 		return ev
 	}
-	if ev.Key() == tcell.KeyRune {
-		switch ev.Rune() {
-		case keyQuit, 'Q':
-			u.app.Stop()
-			return nil
-		case keyProbe:
-			if id := u.overview.selectedID(); id > 0 {
-				if p, ok := u.deps.Store.GetProvider(id); ok {
-					u.probeNow(p)
-				}
-			}
-			return nil
-		case keyExport:
-			u.exportCurrent()
-			return nil
-		case keyWeb:
-			u.toggleWeb()
-			return nil
-		case keySettings:
-			u.openSettingsModal()
-			return nil
-		case keyToggle:
-			u.toggleCurrent()
-			return nil
-		}
+	if u.app.GetFocus() == u.cmd.input {
+		return ev // the command bar owns the keyboard
+	}
+	if ev.Key() == tcell.KeyTab {
+		u.rotateFocus()
+		return nil
 	}
 	return ev
 }
 
-// overviewKeys adds the management keys on the provider list: n = 新建,
-// e = 编辑, d = 删除 (design.md §7).
-func (u *ui) overviewKeys(ev *tcell.EventKey) *tcell.EventKey {
-	if ev.Key() == tcell.KeyRune {
-		switch ev.Rune() {
-		case keyNew, keyEdit, keyDelete:
-			if u.modalOpen() {
-				return ev // a modal owns the keyboard
-			}
-			id := u.overview.selectedID()
-			if ev.Rune() == keyNew {
-				u.openFormModal(0)
-				return nil
-			}
-			if id <= 0 {
-				u.setStatus("[gray]请先选择监测对象[-]")
-				return nil
-			}
-			switch ev.Rune() {
-			case keyEdit:
-				u.openFormModal(id)
-			case keyDelete:
-				u.openDeleteModal(id)
-			}
-			return nil
-		}
+// rotateFocus walks the three focus stations (Q9): command bar → provider
+// list → detail view → command bar. Focus lands with app.SetFocus directly
+// on the control, never through Flex delegation (red line §6-4).
+func (u *ui) rotateFocus() {
+	switch u.app.GetFocus() {
+	case u.overview.list:
+		u.app.SetFocus(u.detailView)
+	case u.detailView:
+		u.app.SetFocus(u.cmd.input)
+	default: // command bar (or anything else): start from the list
+		u.app.SetFocus(u.overview.list)
 	}
-	return ev
 }
 
 // modalOpen reports whether an overlay page is visible.
@@ -320,11 +318,16 @@ func (u *ui) openDeleteModal(id int) {
 	u.pages.AddAndSwitchToPage("modal", modal, true)
 }
 
-// dismissModal tears the overlay down and returns focus to the main layout.
+// dismissModal tears the overlay down and returns focus to the command bar —
+// the command system's home focus (mos-runner pattern: tree resolution would
+// otherwise drop focus onto the list).
 func (u *ui) dismissModal() {
 	u.pages.RemovePage("modal")
 	u.pages.SwitchToPage("main")
 	formDismissHook = nil
+	if u.cmd != nil {
+		u.app.SetFocus(u.cmd.input)
+	}
 }
 
 // afterMutation redraws after add/edit/delete (the store changed).
@@ -338,7 +341,7 @@ func (u *ui) afterMutation() {
 func (u *ui) exportCurrent() {
 	id := u.overview.selectedID()
 	if id <= 0 {
-		u.setStatus("[gray]请先选择监测对象[-]")
+		u.setStatus("[gray]" + view.CmdMsgNeedSelection + "[-]")
 		return
 	}
 	p, ok := u.deps.Store.GetProvider(id)
@@ -351,7 +354,7 @@ func (u *ui) exportCurrent() {
 		u.setStatus("[red]" + tviewEscape(err.Error()) + "[-]")
 		return
 	}
-	u.setStatus("[green]报告已导出：[-]" + tviewEscape(path) + " [gray]（w 打开 Web 面板查看）[-]")
+	u.setStatus("[green]报告已导出：[-]" + tviewEscape(path) + " [gray]（/web 打开 Web 面板查看）[-]")
 }
 
 // toggleWeb pulls the on-demand panel up or down (R2). The status line
@@ -367,7 +370,7 @@ func (u *ui) toggleWeb() {
 		u.setStatus("[red]Web 面板启动失败：" + tviewEscape(err.Error()) + "[-]")
 		return
 	}
-	u.setStatus("[green]Web 面板：[-]" + url + " [gray]（w 关闭）[-]")
+	u.setStatus("[green]Web 面板：[-]" + url + " [gray]（/web 关闭）[-]")
 }
 
 // setStatus writes the one-line message area.

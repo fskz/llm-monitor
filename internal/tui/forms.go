@@ -280,8 +280,8 @@ func (d *formDialog) close() {
 	}
 }
 
-// confirmDelete asks before deleting (design.md §7: d = 编辑/n 新建/d 删除,
-// delete gets a confirmation modal). tview's Modal done contract: button i
+// confirmDelete asks before deleting (the /delete command keeps a
+// confirmation modal). tview's Modal done contract: button i
 // fires done(i, label), Esc fires done(-1, "") — both cancel paths (取消
 // button, Esc) must dismiss the modal without touching the store (review
 // fixpack #2); only idx==0 deletes.

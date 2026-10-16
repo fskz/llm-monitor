@@ -67,8 +67,11 @@ func TestRunReturnsOnContextCancel(t *testing.T) {
 	}
 }
 
-// Run must also return cleanly on a user quit — the 'q' key routes through
-// the input capture to app.Stop, the other half of the 阶段 3 contract.
+// Run must also return cleanly on a user quit — the /quit command typed
+// through the command bar (task 10-16: the startup focus sits on the command
+// input, so the old 'q' rune would just type into the field). Typing the
+// full command exercises the real chain: rune insertion → changed callback
+// → prefix filter → Enter capture → execute → registry dispatch → app.Stop.
 func TestRunReturnsOnQuitKey(t *testing.T) {
 	st, err := store.New(t.TempDir())
 	if err != nil {
@@ -85,14 +88,17 @@ func TestRunReturnsOnQuitKey(t *testing.T) {
 	}()
 
 	// Wait for the screen Init inside run() to finish (happens-before edge),
-	// then give the app event loop a moment to start before pressing 'q'.
+	// then give the app event loop a moment to start before typing.
 	select {
 	case <-screen.ready:
 	case <-time.After(5 * time.Second):
 		t.Fatal("screen was not initialized within 5s")
 	}
 	time.Sleep(200 * time.Millisecond)
-	screen.InjectKey(tcell.KeyRune, 'q', tcell.ModNone)
+	for _, r := range "/quit" {
+		screen.InjectKey(tcell.KeyRune, r, tcell.ModNone)
+	}
+	screen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 
 	select {
 	case err := <-done:
@@ -100,7 +106,7 @@ func TestRunReturnsOnQuitKey(t *testing.T) {
 			t.Errorf("Run returned %v, want nil (user quit)", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after the q key")
+		t.Fatal("Run did not return after the /quit command")
 	}
 }
 
