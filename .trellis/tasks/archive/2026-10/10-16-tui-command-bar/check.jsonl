@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "核对:状态文案单一来源(view 层)、回调重入守卫、queueDraw/quit 契约、原子写与测试纪律"}
+{"file": ".trellis/tasks/10-16-tui-command-bar/research/mos-runner-command.md", "reason": "核对五条实测坑红线(禁 QueueUpdateDraw 刷菜单/菜单不走 Pages/Tab 控件级拦截/单焦点/SetFocus 直落)是否在实现中遵守"}

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "TUI 回调同步重入守卫、Run 后 QueueUpdateDraw 永久阻塞、状态文案只能来自 view.StatusText/MonitorText、模态守卫——命令栏实现必须遵守的全部硬约束"}
+{"file": ".trellis/tasks/10-16-tui-command-bar/research/mos-runner-command.md", "reason": "mos-runner 参照实现(命令表/前缀过滤/常驻菜单/handleKey)与五条实测坑红线;llm-monitor 改造起点与可复用 handler 清单"}
