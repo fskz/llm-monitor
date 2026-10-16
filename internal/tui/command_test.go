@@ -841,7 +841,7 @@ func TestPageCommand(t *testing.T) {
 	cb := u.cmd
 	p := u.deps.Store.GetProviders()[0]
 	seedResults(t, u.deps.Store, p.ID, pageSize+5) // 25 rows → 2 pages
-	u.redrawLocked()                                // compute the page-1 next cursor
+	u.redrawLocked()                               // compute the page-1 next cursor
 	if u.detail.nextCursor == nil {
 		t.Fatal("25 rows must yield a next cursor on page 1")
 	}

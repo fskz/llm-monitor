@@ -108,7 +108,7 @@ func (u *ui) probeNow(p store.Provider) {
 					suffix = " [orange]（首内容偏慢）[-]"
 				}
 				tpot := ""
-				if res.Status == "ok" {
+				if res.Status == store.StatusOK {
 					if d := store.ResultTPS(*res, true); d != nil {
 						tpot = " · TPOT " + fmtTPOT(d)
 					}

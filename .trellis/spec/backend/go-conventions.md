@@ -3,8 +3,10 @@
 > Code-spec extracted from the MVP implementation (task 10-08-mvp-llm-monitor),
 > updated by task 10-09-tui-default (TUI default mode + on-demand web panel),
 > task 10-10 metrics/settings packs, 10-12-review-fixpack (tview callback
-> re-entry, MetricsPack aggregation, settings-validation single owner), and
-> 10-16-tui-command-bar (command bar replaces all rune shortcuts).
+> re-entry, MetricsPack aggregation, settings-validation single owner),
+> 10-16-tui-command-bar (command bar replaces all rune shortcuts), and
+> 10-16-review-fixpack-2 (retention hysteresis, SSE tolerance, /page,
+> dual-sync fmt lock).
 > Authority for judgment rules is `docs/REQUIREMENTS.md` §3; this file records
 > the executable contracts the code now relies on.
 
@@ -88,6 +90,11 @@ protocol_error | empty | aborted | cancelled`
   `aborted`); aborted is reserved for peer-side breaks.
 - Normal end = `[DONE]` seen, OR non-empty `finish_reason` then clean EOF;
   otherwise EOF → `aborted` even with partial text.
+- SSE tolerance (review-fixpack-2): whitespace-only `data:` payloads
+  (≥2 spaces survive the single-space strip) are keep-alives — same
+  TrimSpace tolerance as `[DONE]`; unknown `field:value` lines are ignored
+  per the SSE spec (only bare JSON / plain text with no field structure is
+  `protocol_error`). Locked by TestSSEToleratesKeepAliveAndUnknownFields.
 - Error/redaction: API key replaced with `***`, ErrDetail ≤512 runes,
   OutputPreview ≤200 runes, HTTP error body ≤4KB.
 - **Usage capture is observational, never judgmental**: `streamEvent.Usage`
@@ -110,7 +117,12 @@ protocol_error | empty | aborted | cancelled`
   `max_results_per_provider` (default 20000), providers.
 - `results/<id>.jsonl`: append-only under a per-provider mutex; trim rewrites
   the whole file (temp+rename) **inside the same lock** so no new record is
-  lost. Corrupt lines are skipped + counted on load, never rewritten away.
+  lost. Trimming is hysteresis-batched (review-fixpack-2): the rewrite fires
+  only once the in-memory count passes `maxKeep + trimSlack` (maxKeep/10)
+  and trims back to `maxKeep` — a provider at the cap must NOT rewrite on
+  every append (§5.3 requires O(1) appends; the rewrite holds the write
+  lock and blocks polling readers). Locked by TestTrimSlackHysteresis.
+  Corrupt lines are skipped + counted on load, never rewritten away.
 - `Seq` is assigned inside `AppendResult`, which returns the stored record —
   callers wanting the seq must use the return value (pass-by-value otherwise
   yields `seq:0`; this was a real bug).
@@ -164,10 +176,16 @@ protocol_error | empty | aborted | cancelled`
   can never drift apart. Rules: name/model non-empty; base_url `http(s)://`;
   `max_tokens>0`; `interval_sec==0||>=60`;
   `0<ttft_slow_ms<ttft_timeout_ms<=timeout_sec*1000`; `timeout_sec>0`.
-  Tool-level settings follow the same one-owner rule:
-  `view.ValidateSettings(store.Settings)` (+ `view.DirWritable`) owns the
-  settings messages; both `PUT /api/settings` and the TUI settings form call
-  it (10-12-review-fixpack — two verbatim copies used to drift-risk).
+  Rule ORDER is part of the contract too (review-fixpack-2): web
+  `validateProvider` checks in the same order so the first-error message
+  matches the server's for the same form. Tool-level settings follow the
+  same one-owner rule: `view.ValidateSettings(store.Settings)` (+
+  `view.DirWritable`) owns the settings messages; both `PUT /api/settings`
+  and the TUI settings form call it (10-12-review-fixpack — two verbatim
+  copies used to drift-risk). `PUT /api/settings` trims `report_dir` BEFORE
+  validating (DirWritable mkdirs the given path — validating the raw value
+  created mis-named directories); write endpoints cap bodies with
+  `http.MaxBytesReader` via `server.decodeJSON` (413 over 1 MiB).
 - Monitor status priority (§7.2): disabled > manual_only > unknown > stale
   (`>2*interval+timeout`) > ok (+`slow_ttft` when `ttft_ms>ttft_slow_ms`) >
   fail. `probing` is a hint bit, never overrides a status.
@@ -183,8 +201,17 @@ protocol_error | empty | aborted | cancelled`
   probes.
 - All server-derived strings are HTML-escaped before injection (`esc()`);
   empty-sample states render "暂无样本", never 0%.
+- Formatting dual-sync (review-fixpack-2): the JS `fmt*` family and
+  `defaultPrompt()` in web/app.js are copies of the Go owners
+  (`view` report.go Fmt* / provider.go DefaultPrompt). No JS runtime exists
+  in the Go test harness, so `internal/view/fmt_sync_test.go` pins BOTH the
+  Go golden values and the JS function sources verbatim
+  (whitespace-normalized). Changing either side means consciously mirroring
+  the other — same discipline as STATUS_TEXT. The JS `fmtTPOT` guard
+  (`<=0` → "—") had drifted before this lock existed.
 - API JSON shapes are the contract with `internal/view` (ProviderView /
-  StatsView / BucketView) — change both sides together.
+  StatsView / BucketView) — change both sides together. Empty collections
+  serialize `[]`, never `null` (`errors_by_kind`, results `items`).
 
 ## TUI conventions (internal/tui)
 
@@ -214,14 +241,22 @@ protocol_error | empty | aborted | cancelled`
 - Sparkline: `internal/tui/sparkline.go`, max-normalized like the web chart
   math (bucketPath); nil buckets break the bar with `·`.
 
-## Command bar (task 10-16, replaces all rune shortcuts)
+## Command bar (task 10-16, replaces all rune shortcuts; +10-16-review-fixpack-2)
 
 - **The command registry is the only action entry**: `internal/tui/command.go`
-  `commands` table (`name`/`args` enum/`desc`/`needSel`/`run`) — the 14
-  commands replaced the old rune keys (q/p/r/w/,/x, n/e/d, 1/2/3/R/S);
+  `commands` table (`name`/`args` enum/`desc`/`needSel`/`run`) — the 15
+  commands (14 + `/page next|prev` for detail pagination, bare = next page)
+  replaced the old rune keys (q/p/r/w/,/x, n/e/d, 1/2/3/R/S);
   `keys.go` is gone. `/help` renders FROM the registry. The registry has two
   static copies that MUST be synced when a command is added/renamed/its args
   change: `README.md` TUI table and `docs/REQUIREMENTS.md` §4.3.
+- **No command name may be a prefix of another** (TestCommandRegistryShape
+  enforces it): Enter's execution relies on "several candidates ⟹ the typed
+  text is a strict ambiguous prefix, never an exact name".
+- **Enter in the command phase requires a unique candidate** (or exact
+  match) — firing the highlighted entry on several candidates made a bare
+  `/` + Enter execute `/quit` (registry order). Argument-phase candidates
+  share one command; highlighted direct-select stays allowed.
 - Interaction contract: `/` prefix opens the prefix-filtered menu (never
   fuzzy); a space after the command name switches the menu to that command's
   `args` candidates (filter applies to the arg text; do NOT TrimSpace the
@@ -249,6 +284,17 @@ protocol_error | empty | aborted | cancelled`
      `app.SetFocus` directly onto the primitive.
   5. The app-level `SetInputCapture` runs BEFORE the focused primitive's —
      a global handler that consumes Tab/runes starves the command bar.
+- Menu viewport (review-fixpack-2): the fixed 3-row menu TextView never gets
+  focus, so `drawMenu` must `ScrollTo(menuSel-1, 0)` after `SetText` —
+  otherwise ↓ walks the highlight out of the visible window with zero
+  feedback.
+- **`TextView.GetScrollOffset()` returns `(row, column)`** — binding
+  `_, off := …` reads the COLUMN (always 0 for vertical scrolling) and
+  silently resets the scroll on every redraw (review-fixpack-2 F16, found
+  in redrawLocked: the detail pane jumped back to top every 5s tick).
+- Status flashes carry a timestamp (`ui.flashAt`, TTL 5s): `renderStatus`
+  (focus rotation, redraws) keeps a fresh flash instead of overwriting it
+  with the station hint — otherwise one Tab erased an export path.
 - Command-bar text ownership extends the status-text rule: guidance
   (`view.CommandHintText`/`CmdPlaceholderText`/`CmdHelpGuideText`) and
   feedback constants (`view.CmdMsg*`) live in `internal/view/command_text.go`;

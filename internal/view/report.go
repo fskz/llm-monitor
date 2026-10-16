@@ -244,7 +244,7 @@ func ScrubSecret(s, secret string) string {
 
 func rowClassOf(status string) string {
 	switch {
-	case status == "ok":
+	case status == store.StatusOK:
 		return "r-ok"
 	case strings.HasPrefix(status, "timeout"):
 		return "r-timeout"

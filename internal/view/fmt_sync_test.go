@@ -86,8 +86,8 @@ func TestFmtGoGoldenValues(t *testing.T) {
 func TestFmtJsSourcesPinned(t *testing.T) {
 	src := appJS(t)
 	for name, golden := range map[string]string{
-		"fmtPct": `function fmtPct(v) { return v == null ? "—" : v.toFixed(2) + "%"; }`,
-		"fmtTPS": `function fmtTPS(v) { return v == null ? "—" : v.toFixed(1) + " tok/s"; }`,
+		"fmtPct":  `function fmtPct(v) { return v == null ? "—" : v.toFixed(2) + "%"; }`,
+		"fmtTPS":  `function fmtTPS(v) { return v == null ? "—" : v.toFixed(1) + " tok/s"; }`,
 		"fmtTPOT": `function fmtTPOT(decodeTps) { return decodeTps == null || decodeTps <= 0 ? "—" : (1000 / decodeTps).toFixed(1) + " ms/tok"; }`,
 		"fmtMs": `function fmtMs(v) {
 		  if (v == null) return "—";

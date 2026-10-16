@@ -193,7 +193,7 @@ func monitorStatus(p store.Provider, last *LastProbeView) (status string, slow b
 	if time.Since(time.UnixMilli(last.FinishedAt)).Milliseconds() > staleAfter(p) {
 		return "stale", false
 	}
-	if last.Status == "ok" {
+	if last.Status == store.StatusOK {
 		slow = last.TTFTMs != nil && *last.TTFTMs > int64(p.TTFTSlowMs)
 		return "ok", slow
 	}
@@ -204,7 +204,7 @@ func monitorStatus(p store.Provider, last *LastProbeView) (status string, slow b
 // it is a hint on top of "ok", never a separate status (REQUIREMENTS.md
 // §4.4).
 func SlowTTFT(p store.Provider, res *store.Result) bool {
-	return res.Status == "ok" && res.TTFTMs != nil && *res.TTFTMs > int64(p.TTFTSlowMs)
+	return res.Status == store.StatusOK && res.TTFTMs != nil && *res.TTFTMs > int64(p.TTFTSlowMs)
 }
 
 // staleAfter is the freshness limit of the last scheduled probe:

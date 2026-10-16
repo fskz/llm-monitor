@@ -103,7 +103,7 @@ func (d *detailPane) header(v view.ProviderView) string {
 	if v.Probing {
 		badges += " [yellow::b]正在探测[-]"
 	}
-	if v.SlowTTFT && v.Status == "ok" {
+	if v.SlowTTFT && v.Status == store.StatusOK {
 		badges += " [orange::b]首内容偏慢[-]"
 	}
 	return fmt.Sprintf("[::b]%s[-]  [%s::b]%s[-]%s\n",

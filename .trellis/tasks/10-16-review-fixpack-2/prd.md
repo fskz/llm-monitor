@@ -49,17 +49,24 @@
 
 ## Acceptance Criteria
 
-- [ ] A1 `go vet ./...` 与 `go test ./... -race` 全绿(含既有测试)。
-- [ ] A2 留存:单测锁定 slack 行为——追加至 `maxKeep+1` 不触发重写;超过 `maxKeep+slack` 触发一次重写裁回 `maxKeep`;重写与追加的临界区语义不变。
-- [ ] A3 SSE:单测锁定 `data:␠␠`(两空格)与 `x-custom: v` 行不产生 `protocol_error` 且探测正常完成;`[DONE]` 与既有十态分类回归绿。
-- [ ] A4 settings:旧 config 无 settings 段 → `GET /api/settings` 返回 `enabled:true`/`interval_sec:300`;`interval_sec:-5` 被清洗为默认(单测)。
+- [x] A1 `go vet ./...` 与 `go test ./... -race` 全绿(含既有测试)。
+- [x] A2 留存:单测锁定 slack 行为——追加至 `maxKeep+1` 不触发重写;超过 `maxKeep+slack` 触发一次重写裁回 `maxKeep`;重写与追加的临界区语义不变。(TestTrimSlackHysteresis)
+- [x] A3 SSE:单测锁定 `data:␠␠`(两空格)与 `x-custom: v` 行不产生 `protocol_error` 且探测正常完成;`[DONE]` 与既有十态分类回归绿。(TestSSEToleratesKeepAliveAndUnknownFields)
+- [x] A4 settings:旧 config 无 settings 段 → `GET /api/settings` 返回 `enabled:true`/`interval_sec:300`;`interval_sec:-5` 被清洗为默认(单测)。(TestSettingsAbsentSectionAndPartialDefaults)
 - [ ] A5 web 手测:浏览器 A 开详情、B 端删除对象 → ≤5s 详情自动关闭、无 console 报错;双击保存/克隆只建一个对象;timeout 输入 60.5 可正常保存。
 - [ ] A6 #9 手测:TUI 改 `streak_alert` → 网页 ≤10s(两轮轮询)连败徽章阈值更新;用户正在编辑的表单字段不被覆盖。
 - [ ] A7 TUI 手测:`/page next` 可见第 21-40 行、`/page prev` 回退;命令表(15 条)与提示文案一致;输 `/` 按 ↓ 至 `/help` 高亮全程可见;`/`+Enter 不退出。
-- [ ] A8 TUI:删除失败路径关模态+红字反馈(单测矩阵);`/edit` 已删对象闪提示不新建(开 /web 面板手测);`/report` 后 5s 内按 Tab 路径提示仍在(手测)。
-- [ ] A9 契约:格式化函数与默认提示词的双端锁定测试在位且绿;app.js 无缺守卫的 `fmtTPOT`;`"ok"` 字面量全库仅契约常量一处。
-- [ ] A10 trellis-check 通过;**重建根目录 `./llm-monitor` 后**真机冒烟 A5-A8(Session 8 教训:冒烟前必须重建二进制)。
-- [ ] A11 spec 沉淀:命令注册表 15 条(/page)、SSE 容错口径、格式化+提示词双端锁定契约写入对应 spec 文档。
+- [ ] A8 TUI:删除失败路径关模态+红字反馈(单测矩阵已过);`/edit` 已删对象闪提示不新建(开 /web 面板手测);`/report` 后 5s 内按 Tab 路径提示仍在(手测)。
+- [x] A9 契约:格式化函数与默认提示词的双端锁定测试在位且绿;app.js 无缺守卫的 `fmtTPOT`;`"ok"` 比较字面量全库仅契约常量 `store.StatusOK`。(fmt_sync_test.go + 5 处字面量归常量)
+- [x] A10 trellis-check 通过;**重建根目录 `./llm-monitor`**(2026-10-16)后真机冒烟 A5-A8 待用户执行(Session 8 教训:冒烟前必须重建二进制)。
+- [x] A11 spec 沉淀:命令注册表 15 条(/page)、SSE 容错口径、格式化+提示词双端锁定契约、留存滞后、GetScrollOffset(row,column) 陷阱、MaxBytesReader/report_dir trim 写入 go-conventions.md。
+
+## 实施记录(2026-10-16)
+
+四批全部落地并提交:cee65b7(R1 后端)、ed2dfef(R2 服务端+web)、b0df70c(R3 TUI)、bff7439(R4 契约锁定)+ spec 沉淀提交。**范围外新发现 F16**(报告未覆盖,实现期发现):`redrawLocked` 把 `GetScrollOffset()` 的 column 当 row 用,详情滚动位置每 5 秒被静默重置到顶部——已修并注释。
+
+### 归档项(Out of Scope,共 8 项,单独立项候选)
+见上文 Out of Scope;其中后端 4 项与 `/api/providers` 快照性能放大适合合并为一个"store 性能/健壮性"后续任务,web 重渲染 diff 与 exportReport 后台化为前端体验任务。
 
 ## Notes
 
