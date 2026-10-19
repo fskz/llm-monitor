@@ -15,23 +15,24 @@ import "strings"
 // CommandHintText is the status-bar guide line while the command bar holds
 // focus — the app's home state. It replaces the old shortcut guide (prd R4).
 // Record paging is a command (/page), not a key: from the command bar PgDn
-// does nothing, so the guide must not promise it.
+// does nothing, so the guide must not promise it. Esc is two-stage: it
+// clears typed text first and enters pane selection on an empty input.
 func CommandHintText() string {
-	return "输入 / 查看命令（/help） · Tab 切换焦点 · Ctrl+C 退出"
+	return "输入 / 查看命令（/help） · Esc 清空/切换版块 · Ctrl+C 退出"
 }
 
 // ListHintText is the status-bar guide line while the provider list holds
 // focus: typing goes nowhere from here (commands live in the command bar), so
-// the line must say what DOES work instead of going silent — otherwise Tab-ed
+// the line must say what DOES work instead of going silent — otherwise Esc-ed
 // away users read the silent keyboard as a hang (10-16 freeze report).
 func ListHintText() string {
-	return "↑↓ 切换监测对象 · 命令请回命令栏（Tab 切换焦点）"
+	return "↑↓ 切换监测对象 · 命令请回命令栏（Esc 切换版块）"
 }
 
 // DetailHintText is the status-bar guide line while the detail view holds
 // focus (scrolling only; same anti-silence rationale as ListHintText).
 func DetailHintText() string {
-	return "PgDn/PgUp 滚动详情 · 命令请回命令栏（Tab 切换焦点）"
+	return "PgDn/PgUp 滚动详情 · 命令请回命令栏（Esc 切换版块）"
 }
 
 // CmdPlaceholderText is the grayed hint shown inside the empty command input.
@@ -44,7 +45,7 @@ func CmdPlaceholderText() string {
 // CmdHelpGuideText is the one-line menu-interaction guide at the top of the
 // /help listing (plain text; the TUI adds its color tags).
 func CmdHelpGuideText() string {
-	return "输入 / 过滤 · Tab 补全 · Esc 清空"
+	return "输入 / 过滤 · Tab 补全 · Esc 清空/切换版块"
 }
 
 // Command feedback messages, flashed on the status line by the TUI command
@@ -60,7 +61,7 @@ const (
 	CmdMsgHelpListed = "全部命令已列出（输入 / 可随时唤出菜单）"
 	// CmdMsgAmbiguousCommand: Enter in the command phase with several
 	// candidates. Firing the highlighted entry would make a bare "/" execute
-	// /quit, the registry's first entry (review-fixpack-2 F12) — keep typing
+	// /exit, the registry's first entry (review-fixpack-2 F12) — keep typing
 	// or Tab-complete instead.
 	CmdMsgAmbiguousCommand = "匹配多条命令：继续输入或 Tab 补全"
 	// CmdMsgPageNoMore: /page next on the newest-and-oldest boundary.

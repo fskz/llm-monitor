@@ -74,7 +74,7 @@ type ui struct {
 const flashTTL = 5 * time.Second
 
 // Run blocks the main goroutine on the TUI event loop and returns when the
-// user quits (/quit through the bottom command bar, or Ctrl+C which is
+// user quits (/exit through the bottom command bar, or Ctrl+C which is
 // delivered as a key in raw mode and stops the app via tview itself) or when
 // ctx is cancelled (external SIGINT/SIGTERM). Either way the caller proceeds
 // down the graceful-shutdown path; the returned error is ctx.Err() for a
@@ -312,14 +312,18 @@ func (u *ui) focusHintText() string {
 }
 
 // globalKeys is the application-level capture. Task 10-16 step 2: the legacy
-// rune actions retired with the command bar (A5), leaving ONE duty — the Tab
-// three-station rotation (cmdInput → list → detailView → cmdInput, Q9). The
-// app-level capture runs BEFORE the focused primitive, so:
+// rune actions retired with the command bar (A5), leaving ONE duty — the Esc
+// three-station rotation (cmdInput → list → detailView → cmdInput, Q9;
+// 2026-10-19: moved off Tab). The app-level capture runs BEFORE the focused
+// primitive, so:
 //   - while a modal (form / delete confirm) is up every key must pass
 //     through — otherwise typing into an input field would trigger actions
 //     instead of inserting the character;
-//   - while the command bar holds focus Tab passes through — the bar's own
-//     capture decides (completion wins, red line §6-5).
+//   - while the command bar holds focus every key passes through — the bar's
+//     own capture decides (its Esc clears the input first, then rotates).
+//   - Tab is swallowed on the list/detail so tview's built-ins cannot act on
+//     it behind the rotation's back (tview List maps Tab to Down, which
+//     would silently move the selection).
 func (u *ui) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	if u.modalOpen() {
 		return ev
@@ -327,18 +331,22 @@ func (u *ui) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	if u.app.GetFocus() == u.cmd.input {
 		return ev // the command bar owns the keyboard
 	}
-	if ev.Key() == tcell.KeyTab {
+	switch ev.Key() {
+	case tcell.KeyEscape:
 		u.rotateFocus()
 		return nil
+	case tcell.KeyTab:
+		return nil // rotation is Esc-only; never let Tab reach tview built-ins
 	}
 	return ev
 }
 
 // rotateFocus walks the three focus stations (Q9): command bar → provider
-// list → detail view → command bar. Focus lands with app.SetFocus directly
-// on the control, never through Flex delegation (red line §6-4). The status
-// hint follows the station — tview draws right after the consumed key event,
-// so the new line is visible immediately.
+// list → detail view → command bar — the Esc pane-selection cycle. Focus
+// lands with app.SetFocus directly on the control, never through Flex
+// delegation (red line §6-4). The status hint follows the station — tview
+// draws right after the consumed key event, so the new line is visible
+// immediately.
 func (u *ui) rotateFocus() {
 	switch u.app.GetFocus() {
 	case u.overview.list:

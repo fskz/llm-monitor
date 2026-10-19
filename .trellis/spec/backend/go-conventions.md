@@ -255,18 +255,23 @@ protocol_error | empty | aborted | cancelled`
   text is a strict ambiguous prefix, never an exact name".
 - **Enter in the command phase requires a unique candidate** (or exact
   match) — firing the highlighted entry on several candidates made a bare
-  `/` + Enter execute `/quit` (registry order). Argument-phase candidates
+  `/` + Enter execute `/exit` (registry order; the quit command was renamed
+  from `/quit` on 2026-10-19). Argument-phase candidates
   share one command; highlighted direct-select stays allowed.
 - Interaction contract: `/` prefix opens the prefix-filtered menu (never
   fuzzy); a space after the command name switches the menu to that command's
   `args` candidates (filter applies to the arg text; do NOT TrimSpace the
   whole input — the trailing space IS the phase switch); Tab completes the
-  highlighted candidate when the menu is open and rotates focus when closed;
-  Enter prefers the highlighted candidate, else parses the text; bare enum
+  highlighted candidate when the menu is open and is swallowed when closed
+  (rotation is NOT Tab's job, 2026-10-19); Esc clears a non-empty input and
+  on an empty input enters pane selection (版块轮转); Enter prefers the
+  highlighted candidate, else parses the text; bare enum
   command (`/window`, no space/arg) = cycle fallback; invalid arg flashes the
   legal set; non-`/` text Enter is swallowed. Commands act on the current
   selection regardless of focus (`needSel` commands flash when nothing is
-  selected). Tab rotation: 命令框 → list → detail → 命令框; the app-level
+  selected). Esc rotation: 命令框 → list → detail → 命令框; outside the
+  command bar Tab is swallowed at the app-level capture (tview List maps Tab
+  to Down — a passed Tab silently moves the provider selection); the app-level
   capture must yield every key while the command bar holds focus.
 - Five red lines (tview pitfalls, verified in both mos-runner and this repo —
   violating any of these breaks input handling at runtime, tests do not

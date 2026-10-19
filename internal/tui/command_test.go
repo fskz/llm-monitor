@@ -17,7 +17,7 @@ import (
 // menu rendering, key handling and every execute branch run on a dormant
 // application built by newUI — SetText triggers the changed callback
 // synchronously, so no event loop is needed for the logic half. The
-// screen-driven half (startup focus, live typing, Tab rotation) uses the
+// screen-driven half (startup focus, live typing, Esc rotation) uses the
 // tcell simulation screen at the bottom of this file.
 
 // newTestUI builds a fully wired ui on a dormant app. providers seeds the
@@ -105,7 +105,7 @@ func TestCommandRegistryShape(t *testing.T) {
 			t.Errorf("%s needSel = %v, want %v", c.name, c.needSel, wantSel[c.name])
 		}
 	}
-	for _, name := range []string{"/quit", "/probe", "/report", "/web", "/settings",
+	for _, name := range []string{"/exit", "/probe", "/report", "/web", "/settings",
 		"/toggle", "/new", "/edit", "/delete", "/window", "/revision", "/source",
 		"/page", "/refresh", "/help"} {
 		if !seen[name] {
@@ -134,7 +134,7 @@ func TestFilterCommandPhase(t *testing.T) {
 		{in: ""},
 		{in: "hello"},
 		{in: "w/"},
-		{in: "/", want: []string{"/quit", "/probe", "/report", "/web", "/settings", "/toggle",
+		{in: "/", want: []string{"/exit", "/probe", "/report", "/web", "/settings", "/toggle",
 			"/new", "/edit", "/delete", "/window", "/revision", "/source", "/page", "/refresh", "/help"}, open: true},
 		{in: "/w", want: []string{"/web", "/window"}, open: true},
 		{in: "/window", want: []string{"/window"}, open: true},
@@ -171,7 +171,7 @@ func TestFilterArgumentPhase(t *testing.T) {
 		{in: "/window 9h"}, // no matching arg: menu closed, Enter will flash
 		{in: "/revision a", want: []string{"all"}, open: true},  //
 		{in: "/source m", want: []string{"manual"}, open: true}, //
-		{in: "/quit x"}, // zero-arg command: never an arg phase
+		{in: "/exit x"}, // zero-arg command: never an arg phase
 		{in: "/nope a"}, // unknown command
 		{in: "/window  ", want: []string{"1h", "24h", "7d"}, open: true}, // extra spaces trim
 	} {
@@ -258,8 +258,8 @@ func TestHandleKeyTabCompletion(t *testing.T) {
 	if ev := press(cb, tcell.KeyTab, 0); ev != nil {
 		t.Fatal("Tab with the menu open must be consumed (completion)")
 	}
-	if got := cb.input.GetText(); got != "/quit" {
-		t.Fatalf("Tab completed to %q, want /quit (first candidate)", got)
+	if got := cb.input.GetText(); got != "/exit" {
+		t.Fatalf("Tab completed to %q, want /exit (first candidate)", got)
 	}
 	// Argument phase completes "name arg".
 	typeIn(cb, "/source m")
@@ -271,15 +271,18 @@ func TestHandleKeyTabCompletion(t *testing.T) {
 	}
 }
 
-func TestHandleKeyTabRotatesWhenMenuClosed(t *testing.T) {
+// 2026-10-19: rotation moved from Tab to Esc. Tab with the menu closed must
+// still be consumed (InputField would otherwise treat it as field-finished
+// and jump focus on its own), but it must do NOTHING.
+func TestHandleKeyTabSwallowedWhenMenuClosed(t *testing.T) {
 	u := newTestUI(t, 1)
 	cb := u.cmd
 	typeIn(cb, "") // menu closed
 	if ev := press(cb, tcell.KeyTab, 0); ev != nil {
-		t.Fatal("Tab with the menu closed must be consumed by the rotation")
+		t.Fatal("Tab with the menu closed must be consumed (no tview default)")
 	}
-	if got := u.app.GetFocus(); got != u.overview.list {
-		t.Fatalf("focus after Tab = %T, want the provider list", got)
+	if got := u.app.GetFocus(); got != u.cmd.input {
+		t.Fatalf("focus after Tab = %T, want the command bar (Tab no longer rotates)", got)
 	}
 }
 
@@ -294,6 +297,30 @@ func TestHandleKeyEscapeClears(t *testing.T) {
 	}
 	if cb.menuOpen() {
 		t.Fatal("menu must be closed after Esc")
+	}
+}
+
+// 2026-10-19: Esc on an empty input enters pane selection (版块选择) — the
+// rotation that used to live on Tab.
+func TestHandleKeyEscapeRotatesWhenEmpty(t *testing.T) {
+	u := newTestUI(t, 1)
+	cb := u.cmd
+	if got := cb.input.GetText(); got != "" {
+		t.Fatalf("precondition: input = %q, want empty", got)
+	}
+	if ev := press(cb, tcell.KeyEscape, 0); ev != nil {
+		t.Fatal("Esc must be consumed")
+	}
+	if got := u.app.GetFocus(); got != u.overview.list {
+		t.Fatalf("focus after Esc = %T, want the provider list", got)
+	}
+	// One Esc only rotates one station — a stray press never bounces the
+	// focus all the way home.
+	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)); ev != nil {
+		t.Fatal("app-level Esc must be consumed")
+	}
+	if got := u.app.GetFocus(); got != u.detailView {
+		t.Fatalf("focus after the second Esc = %T, want the detail view", got)
 	}
 }
 
@@ -341,12 +368,12 @@ func TestExecuteUnknownCommand(t *testing.T) {
 func TestExecuteZeroArgCommandWithArgument(t *testing.T) {
 	u := newTestUI(t, 1)
 	cb := u.cmd
-	typeIn(cb, "/quit x")
+	typeIn(cb, "/exit x")
 	press(cb, tcell.KeyEnter, 0)
-	if got := statusOf(u); !strings.Contains(got, view.CmdMsgNoArg("/quit")) {
-		t.Fatalf("status = %q, want %q", got, view.CmdMsgNoArg("/quit"))
+	if got := statusOf(u); !strings.Contains(got, view.CmdMsgNoArg("/exit")) {
+		t.Fatalf("status = %q, want %q", got, view.CmdMsgNoArg("/exit"))
 	}
-	if got := cb.input.GetText(); got != "/quit x" {
+	if got := cb.input.GetText(); got != "/exit x" {
 		t.Fatalf("input = %q, must be kept for editing", got)
 	}
 }
@@ -458,7 +485,7 @@ func TestExecuteMenuHighlightedArgumentRuns(t *testing.T) {
 func TestExecuteMenuHighlightedCommandRuns(t *testing.T) {
 	// review-fixpack-2 F12: a UNIQUE prefix executes on Enter; an AMBIGUOUS
 	// prefix ("/w" matches /web+/window) must NOT fire the highlighted entry
-	// (a bare "/" would otherwise execute /quit, the registry's first entry).
+	// (a bare "/" would otherwise execute /exit, the registry's first entry).
 	u := newTestUI(t, 1)
 	cb := u.cmd
 
@@ -472,7 +499,7 @@ func TestExecuteMenuHighlightedCommandRuns(t *testing.T) {
 		t.Fatalf("input = %q, must be kept for completion", got)
 	}
 
-	// Bare "/": the worst case — highlights /quit; Enter must not quit.
+	// Bare "/": the worst case — highlights /exit; Enter must not quit.
 	typeIn(cb, "/")
 	press(cb, tcell.KeyEnter, 0)
 	if got := statusOf(u); !strings.Contains(got, view.CmdMsgAmbiguousCommand) {
@@ -537,10 +564,10 @@ func TestExecuteQuitStopsTheApp(t *testing.T) {
 	// and must clear the input.
 	u := newTestUI(t, 0)
 	cb := u.cmd
-	typeIn(cb, "/quit")
+	typeIn(cb, "/exit")
 	press(cb, tcell.KeyEnter, 0)
 	if got := cb.input.GetText(); got != "" {
-		t.Fatalf("input = %q after /quit, want cleared", got)
+		t.Fatalf("input = %q after /exit, want cleared", got)
 	}
 }
 
@@ -585,39 +612,61 @@ func TestRefreshCommandRereadsTheStore(t *testing.T) {
 	}
 }
 
-// --- Tab rotation (Q9) ---
+// --- Esc rotation (Q9; 2026-10-19 moved off Tab) ---
 
-func TestTabRotationThreeStations(t *testing.T) {
+func TestEscRotationThreeStations(t *testing.T) {
 	u := newTestUI(t, 1)
-	// Station 1 → 2: from the command bar via its own capture.
-	if ev := press(u.cmd, tcell.KeyTab, 0); ev != nil {
-		t.Fatal("Tab on the command bar must be consumed")
+	// Station 1 → 2: from the command bar via its own capture (empty input:
+	// Esc's clear stage is done, so it rotates).
+	if ev := press(u.cmd, tcell.KeyEscape, 0); ev != nil {
+		t.Fatal("Esc on the command bar must be consumed")
 	}
 	if got := u.app.GetFocus(); got != u.overview.list {
 		t.Fatalf("station 2 = %T, want the list", got)
 	}
 	// Station 2 → 3 via the app-level capture.
-	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev != nil {
-		t.Fatal("app-level Tab must be consumed")
+	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)); ev != nil {
+		t.Fatal("app-level Esc must be consumed")
 	}
 	if got := u.app.GetFocus(); got != u.detailView {
 		t.Fatalf("station 3 = %T, want the detail view", got)
 	}
 	// Station 3 → 1.
-	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev != nil {
-		t.Fatal("app-level Tab must be consumed")
+	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)); ev != nil {
+		t.Fatal("app-level Esc must be consumed")
 	}
 	if got := u.app.GetFocus(); got != u.cmd.input {
 		t.Fatalf("station 1 = %T, want the command bar", got)
 	}
 }
 
-func TestGlobalKeysTabYieldsToCommandBar(t *testing.T) {
-	// The app-level capture runs first; with focus on the command bar Tab
-	// must pass through so the bar's capture can complete the menu.
+func TestGlobalKeysYieldToCommandBar(t *testing.T) {
+	// The app-level capture runs first; with focus on the command bar Esc
+	// (and Tab) must pass through so the bar's capture owns them — its Esc
+	// clears a non-empty input before ever rotating.
 	u := newTestUI(t, 1)
-	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev == nil {
-		t.Fatal("app-level Tab must yield while the command bar holds focus")
+	for _, key := range []tcell.Key{tcell.KeyEscape, tcell.KeyTab} {
+		if ev := u.globalKeys(tcell.NewEventKey(key, 0, tcell.ModNone)); ev == nil {
+			t.Fatalf("app-level %v must yield while the command bar holds focus", key)
+		}
+	}
+}
+
+// Tab no longer rotates; outside the command bar it must be swallowed so
+// tview's built-ins cannot act on it (tview List maps Tab to Down — a passed
+// Tab would silently move the provider selection).
+func TestGlobalKeysSwallowsTabOutsideCommandBar(t *testing.T) {
+	u := newTestUI(t, 1)
+	u.app.SetFocus(u.overview.list)
+	before := u.overview.selectedID()
+	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev != nil {
+		t.Fatal("app-level Tab must be consumed outside the command bar")
+	}
+	if got := u.app.GetFocus(); got != u.overview.list {
+		t.Fatalf("focus after Tab = %T, want the list (Tab no longer rotates)", got)
+	}
+	if got := u.overview.selectedID(); got != before {
+		t.Fatalf("selection moved %d → %d: Tab must not reach tview List", before, got)
 	}
 }
 
@@ -691,17 +740,17 @@ func TestCommandBarScreenFocusMenuAndRotation(t *testing.T) {
 		t.Fatalf("menu after /w: %d items, want 2 (/web, /window)", items)
 	}
 
-	// A2: Esc closes the menu, then Tab×3 walks cmdInput → list → detail →
-	// cmdInput and lands back on the command bar.
+	// A2: Esc clears the "/w" text (menu closes), then Esc×3 walks
+	// cmdInput → list → detail → cmdInput and lands back on the command bar.
 	screen.InjectKey(tcell.KeyEscape, 0, tcell.ModNone)
 	time.Sleep(150 * time.Millisecond)
 	for i := 0; i < 3; i++ {
-		screen.InjectKey(tcell.KeyTab, 0, tcell.ModNone)
+		screen.InjectKey(tcell.KeyEscape, 0, tcell.ModNone)
 		time.Sleep(150 * time.Millisecond)
 	}
 	readState(t, app, func() { focus = app.GetFocus() })
 	if focus != u.cmd.input {
-		t.Fatalf("focus after three Tabs = %T, want the command bar again", focus)
+		t.Fatalf("focus after three Escs = %T, want the command bar again", focus)
 	}
 
 	// Shut the loop down through the ctx path.
@@ -812,23 +861,23 @@ func TestStatusHintFollowsFocus(t *testing.T) {
 	}
 
 	// Station 2: the list guide names its keys and the way back. From the
-	// command bar Tab is the bar's own capture (globalKeys yields), so drive
+	// command bar Esc is the bar's own capture (globalKeys yields), so drive
 	// it the way the event loop does.
-	if ev := press(u.cmd, tcell.KeyTab, 0); ev != nil {
-		t.Fatal("Tab on the command bar must be consumed")
+	if ev := press(u.cmd, tcell.KeyEscape, 0); ev != nil {
+		t.Fatal("Esc on the command bar must be consumed")
 	}
 	if got := u.statusBar.GetText(false); got != "[gray]"+view.ListHintText()+"[white]" {
 		t.Fatalf("list hint = %q, want %q", got, view.ListHintText())
 	}
 
 	// Station 3: the detail guide.
-	u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
+	u.globalKeys(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
 	if got := u.statusBar.GetText(false); got != "[gray]"+view.DetailHintText()+"[white]" {
 		t.Fatalf("detail hint = %q, want %q", got, view.DetailHintText())
 	}
 
 	// Back home: the command-bar guide again.
-	u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
+	u.globalKeys(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
 	if got := u.statusBar.GetText(false); got != "[gray]"+view.CommandHintText()+"[white]" {
 		t.Fatalf("restored hint = %q, want the command-bar guide", got)
 	}

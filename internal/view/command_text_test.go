@@ -10,7 +10,7 @@ import (
 
 func TestCommandHintText(t *testing.T) {
 	got := CommandHintText()
-	for _, want := range []string{"/", "/help", "Tab", "Ctrl+C"} {
+	for _, want := range []string{"/", "/help", "Esc", "Ctrl+C"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("CommandHintText() = %q, want it to mention %q", got, want)
 		}
@@ -40,13 +40,13 @@ func TestCmdHelpGuideText(t *testing.T) {
 
 // The away-station guide lines must name the station's real keys AND point
 // back to the command bar — a silent keyboard reads as a hang (10-16 freeze
-// report: Tab-ed away users typed commands into a list that ignores runes).
+// report: Esc-ed away users typed commands into a list that ignores runes).
 func TestFocusHintTexts(t *testing.T) {
-	if got := ListHintText(); !strings.Contains(got, "↑↓") || !strings.Contains(got, "Tab") {
-		t.Errorf("ListHintText() = %q, want ↑↓ guidance and a Tab pointer", got)
+	if got := ListHintText(); !strings.Contains(got, "↑↓") || !strings.Contains(got, "Esc") {
+		t.Errorf("ListHintText() = %q, want ↑↓ guidance and an Esc pointer", got)
 	}
-	if got := DetailHintText(); !strings.Contains(got, "PgDn") || !strings.Contains(got, "Tab") {
-		t.Errorf("DetailHintText() = %q, want PgDn guidance and a Tab pointer", got)
+	if got := DetailHintText(); !strings.Contains(got, "PgDn") || !strings.Contains(got, "Esc") {
+		t.Errorf("DetailHintText() = %q, want PgDn guidance and an Esc pointer", got)
 	}
 	if ListHintText() == CommandHintText() || DetailHintText() == CommandHintText() {
 		t.Error("focus hints must differ from the command-bar hint")
@@ -66,9 +66,9 @@ func TestCommandFeedbackMessages(t *testing.T) {
 }
 
 func TestCmdMsgNoArg(t *testing.T) {
-	got := CmdMsgNoArg("/quit")
-	if got != "/quit 不接受参数" {
-		t.Fatalf("CmdMsgNoArg(/quit) = %q, want \"/quit 不接受参数\"", got)
+	got := CmdMsgNoArg("/exit")
+	if got != "/exit 不接受参数" {
+		t.Fatalf("CmdMsgNoArg(/exit) = %q, want \"/exit 不接受参数\"", got)
 	}
 }
 

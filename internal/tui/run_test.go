@@ -68,7 +68,7 @@ func TestRunReturnsOnContextCancel(t *testing.T) {
 	}
 }
 
-// Run must also return cleanly on a user quit — the /quit command typed
+// Run must also return cleanly on a user quit — the /exit command typed
 // through the command bar (task 10-16: the startup focus sits on the command
 // input, so the old 'q' rune would just type into the field). Typing the
 // full command exercises the real chain: rune insertion → changed callback
@@ -96,7 +96,7 @@ func TestRunReturnsOnQuitKey(t *testing.T) {
 		t.Fatal("screen was not initialized within 5s")
 	}
 	time.Sleep(200 * time.Millisecond)
-	for _, r := range "/quit" {
+	for _, r := range "/exit" {
 		screen.InjectKey(tcell.KeyRune, r, tcell.ModNone)
 	}
 	screen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
@@ -107,7 +107,7 @@ func TestRunReturnsOnQuitKey(t *testing.T) {
 			t.Errorf("Run returned %v, want nil (user quit)", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after the /quit command")
+		t.Fatal("Run did not return after the /exit command")
 	}
 }
 
@@ -149,10 +149,10 @@ func TestFlashSurvivesFocusRotation(t *testing.T) {
 		t.Fatalf("status = %q, want the flash", got)
 	}
 
-	// What Tab does: focus change + renderStatus.
+	// What the Esc rotation does: focus change + renderStatus.
 	u.rotateFocus()
 	if got := statusOf(u); !strings.Contains(got, "报告已导出") {
-		t.Fatalf("status after rotation = %q, the flash must survive (was erased by Tab before)", got)
+		t.Fatalf("status after rotation = %q, the flash must survive (was erased by a rotation before)", got)
 	}
 
 	// After the TTL the hint takes the line back.

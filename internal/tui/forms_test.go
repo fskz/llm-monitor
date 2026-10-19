@@ -160,10 +160,10 @@ func TestConfirmDeleteCancelPaths(t *testing.T) {
 //
 // Task 10-16 step 2: the rune actions are retired (A5), so globalKeys has
 // exactly two remaining behaviors to pin here — the modalOpen passthrough
-// guard and the Tab rotation, which yields while the command bar holds
-// focus (completion wins, red line §6-5). Every former action rune must
-// now pass through at ANY non-command-bar focus: the command bar is the
-// single action entry.
+// guard and the Esc rotation (2026-10-19, moved off Tab), which yields
+// while the command bar holds focus (the bar's own Esc clears the input
+// first, red line §6-5). Every former action rune must now pass through
+// at ANY non-command-bar focus: the command bar is the single action entry.
 func TestGlobalKeysPassThroughWhenModalOpen(t *testing.T) {
 	st, err := store.New(t.TempDir())
 	if err != nil {
@@ -171,8 +171,8 @@ func TestGlobalKeysPassThroughWhenModalOpen(t *testing.T) {
 	}
 	u := newUI(tview.NewApplication(), Deps{Store: st})
 
-	// Modal up: every key passes through, Tab included (the rotation must
-	// not fight the form's own navigation).
+	// Modal up: every key passes through, Tab and Esc included (the
+	// rotation must not fight the form's own navigation/cancel).
 	u.pages.AddAndSwitchToPage("modal", tview.NewBox(), true)
 	if !u.modalOpen() {
 		t.Fatal("modal must be reported open")
@@ -183,25 +183,30 @@ func TestGlobalKeysPassThroughWhenModalOpen(t *testing.T) {
 			t.Fatalf("key %q must pass through while a modal is open", r)
 		}
 	}
-	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev == nil {
-		t.Fatal("Tab must pass through while a modal is open")
+	for _, key := range []tcell.Key{tcell.KeyTab, tcell.KeyEscape} {
+		if ev := u.globalKeys(tcell.NewEventKey(key, 0, tcell.ModNone)); ev == nil {
+			t.Fatalf("key %v must pass through while a modal is open", key)
+		}
 	}
 	u.dismissModal() // restores the command-bar focus
 
-	// Command bar focused: everything passes through — Tab is decided by the
-	// bar's own capture (menu completion).
+	// Command bar focused: everything passes through — Tab and Esc are
+	// decided by the bar's own capture (completion / clear-then-rotate).
 	for _, r := range []rune{'p', 'r', 'w', 'q'} {
 		ev := u.globalKeys(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
 		if ev == nil {
 			t.Fatalf("key %q must pass through while the command bar is focused", r)
 		}
 	}
-	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev == nil {
-		t.Fatal("app-level Tab must yield while the command bar holds focus")
+	for _, key := range []tcell.Key{tcell.KeyTab, tcell.KeyEscape} {
+		if ev := u.globalKeys(tcell.NewEventKey(key, 0, tcell.ModNone)); ev == nil {
+			t.Fatalf("app-level %v must yield while the command bar holds focus", key)
+		}
 	}
 
 	// List focused (A5, handler half): all retired action runes pass through
-	// with no side effects; only Tab is consumed and still rotates.
+	// with no side effects; Esc rotates, Tab is consumed as a no-op (never
+	// reaches tview List, which maps Tab to Down).
 	u.app.SetFocus(u.overview.list)
 	for _, r := range []rune{'p', 'r', 'w', 'q', 'Q', 'x', ',', 'n', 'e', 'd', '1', '2', '3', 'R', 'S'} {
 		ev := u.globalKeys(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
@@ -218,10 +223,16 @@ func TestGlobalKeysPassThroughWhenModalOpen(t *testing.T) {
 			u.detail.filters.window, u.detail.filters.revision, u.detail.filters.source)
 	}
 	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); ev != nil {
-		t.Fatal("Tab with focus on the list must be consumed by the rotation")
+		t.Fatal("Tab with focus on the list must be consumed (no tview default)")
+	}
+	if got := u.app.GetFocus(); got != u.overview.list {
+		t.Fatalf("focus after Tab = %T, want the list (Tab no longer rotates)", got)
+	}
+	if ev := u.globalKeys(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)); ev != nil {
+		t.Fatal("Esc with focus on the list must be consumed by the rotation")
 	}
 	if got := u.app.GetFocus(); got != u.detailView {
-		t.Fatalf("focus after Tab = %T, want the detail view", got)
+		t.Fatalf("focus after Esc = %T, want the detail view", got)
 	}
 
 	// Detail focused (former detail-capture scope): runes pass through there

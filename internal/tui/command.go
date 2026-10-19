@@ -21,11 +21,13 @@ import (
 //     QueueUpdateDraw would redraw before the character lands in the field
 //     and eat the input.
 //   - The menu is a permanently-present TextView, never a Pages overlay.
-//   - Tab is ALWAYS intercepted at the control level (completion with the
-//     menu open, focus rotation closed) — InputField treats Tab as a
-//     finished key and would jump focus on its own.
-//   - The app-level capture runs first, so globalKeys passes Tab through
-//     while the command bar holds focus (completion wins).
+//   - Tab is ALWAYS intercepted at the control level, but only ever
+//     completes (menu open) — InputField treats Tab as a finished key and
+//     would jump focus on its own. Focus rotation lives on Esc
+//     (2026-10-19): Esc clears a non-empty input, and on an empty input
+//     enters pane selection (版块轮转 命令栏→列表→详情→命令栏).
+//   - The app-level capture runs first, so globalKeys passes Tab and Esc
+//     through while the command bar holds focus (the bar's capture wins).
 
 // command is one registry entry. desc is the ONLY user-visible text that
 // travels with the tui package (prd R5); every status/flash wording comes
@@ -51,7 +53,7 @@ var commands []command
 
 func init() {
 	commands = []command{
-		{name: "/quit", desc: "退出（Ctrl+C 也可）", run: func(u *ui, arg string) { u.app.Stop() }},
+		{name: "/exit", desc: "退出（Ctrl+C 也可）", run: func(u *ui, arg string) { u.app.Stop() }},
 		{name: "/probe", desc: "立即探测当前对象", needSel: true, run: func(u *ui, arg string) {
 			if p, ok := u.deps.Store.GetProvider(u.overview.selectedID()); ok {
 				u.probeNow(p)
@@ -243,9 +245,10 @@ func (cb *commandBar) menuText() string {
 }
 
 // handleKey is the command field's input capture: ↑/↓ move the menu
-// selection (cyclically), Tab completes it or rotates the focus, Enter
-// executes, Esc clears. A modal always wins (prd R3/A8: the command bar
-// must not steal input from an open form).
+// selection (cyclically), Tab completes it (menu open only), Enter
+// executes, Esc clears a non-empty input or — on an empty input — enters
+// pane selection (rotateFocus). A modal always wins (prd R3/A8: the
+// command bar must not steal input from an open form).
 func (cb *commandBar) handleKey(ev *tcell.EventKey) *tcell.EventKey {
 	if cb.u.modalOpen() {
 		return ev
@@ -263,20 +266,25 @@ func (cb *commandBar) handleKey(ev *tcell.EventKey) *tcell.EventKey {
 		cb.drawMenu()
 		return nil
 	case tcell.KeyTab:
-		// Control-level intercept in BOTH states (red line §6-3): completion
-		// with the menu open, three-station focus rotation when closed.
+		// Completion only (red line §6-3): Tab stays intercepted even with
+		// the menu closed — InputField would treat it as a finished key and
+		// jump focus on its own. Rotation moved to Esc (2026-10-19).
 		if cb.menuOpen() {
 			cb.completeSelection()
-		} else {
-			cb.u.rotateFocus()
 		}
 		return nil
 	case tcell.KeyEnter:
 		cb.execute()
 		return nil
 	case tcell.KeyEscape:
-		// SetText triggers the changed callback → filter + menu repaint.
-		cb.input.SetText("")
+		// First Esc dismisses typed text (SetText triggers the changed
+		// callback → filter + menu repaint); on an empty input it enters
+		// pane selection — focus walks 命令栏 → 列表 → 详情 → 命令栏.
+		if cb.input.GetText() != "" {
+			cb.input.SetText("")
+		} else {
+			cb.u.rotateFocus()
+		}
 		return nil
 	}
 	return ev
@@ -314,7 +322,7 @@ func (cb *commandBar) execute() {
 	if cb.menuOpen() {
 		e := cb.menuItems[cb.menuSel]
 		// Command phase with several candidates must NOT fire the highlighted
-		// entry: a bare "/" highlights /quit (registry order), so "/" + Enter
+		// entry: a bare "/" highlights /exit (registry order), so "/" + Enter
 		// would quit the app (review-fixpack-2 F12). Argument-phase candidates
 		// all share one command — direct-select stays allowed. No command name
 		// prefixes another, so several command candidates always mean the
