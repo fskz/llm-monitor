@@ -192,6 +192,27 @@ protocol_error | empty | aborted | cancelled`
 - `last_probe` must match the provider's current `revision`, else it is
   treated as absent (status becomes `unknown`, §12.1-8).
 
+## Cache check (task 10-22-cache-check, 2026-10-22)
+
+- Prefix-cache detection is an INDEPENDENT module: `internal/cachecheck`
+  (imports only `internal/probe`; two sequential `probe.Do` hops with the
+  fixed ≥2048-token prompt, max_tokens 8, forced `include_usage`, TTFT
+  deadline == total deadline so evidence is never cut short). Its per-provider
+  in-flight mutex (`ErrCacheCheckInFlight`) shares NOTHING with the probe
+  slot; a check and a probe may run concurrently on one provider by design.
+- Verdict machine values (`supported|unsupported|unknown|failed`) live in
+  `cachecheck`; `cached_tokens > 0` on ANY hop is conclusive (supported) even
+  when the other hop's field was relay-stripped. Chinese labels have exactly
+  one Go owner (`view.CacheCheckVerdictText`); the `CACHE_VERDICT_TEXT` copy
+  in web/app.js is locked by `internal/view/cachecheck_sync_test.go` — same
+  discipline as STATUS_TEXT. `cachecheck.AllVerdicts()` is the enumeration
+  source the sync test walks.
+- Check records persist in `cachecheck/<id>.json` (one latest record per
+  provider, atomic overwrite) and MUST NOT enter `results/*.jsonl`, stats,
+  health status, or overview — `AppendResult` stays probe-only.
+- Naming: `prefill` is taken by the `prefill_tps` throughput metric; the
+  detection feature is named `cache`/`cache-check`/前缀缓存 everywhere.
+
 ## Frontend (web/) conventions
 
 - Plain HTML/JS/CSS, no CDN/external URLs, no framework; embedded via
@@ -244,8 +265,9 @@ protocol_error | empty | aborted | cancelled`
 ## Command bar (task 10-16, replaces all rune shortcuts; +10-16-review-fixpack-2)
 
 - **The command registry is the only action entry**: `internal/tui/command.go`
-  `commands` table (`name`/`args` enum/`desc`/`needSel`/`run`) — the 15
-  commands (14 + `/page next|prev` for detail pagination, bare = next page)
+  `commands` table (`name`/`args` enum/`desc`/`needSel`/`run`) — the 16
+  commands (14 base + `/page next|prev` for detail pagination, bare = next
+  page, + `/cache` prefix-cache check, 2026-10-22)
   replaced the old rune keys (q/p/r/w/,/x, n/e/d, 1/2/3/R/S);
   `keys.go` is gone. `/help` renders FROM the registry. The registry has two
   static copies that MUST be synced when a command is added/renamed/its args
