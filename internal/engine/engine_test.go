@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"llm-monitor/internal/cachecheck"
 	"llm-monitor/internal/probe"
 	"llm-monitor/internal/store"
 )
@@ -518,5 +519,157 @@ func TestIncludeUsageFlowsToRequestAndResult(t *testing.T) {
 	}
 	if res.CompletionTokens == nil || *res.CompletionTokens != 5 {
 		t.Fatalf("CompletionTokens = %v, want 5", res.CompletionTokens)
+	}
+}
+
+// cacheHitStream is an SSE stream whose usage event reports
+// cached_tokens=1536 (task 10-22-cache-check). It is also a valid probe
+// response, so one mock endpoint can serve cache checks and probes alike.
+const cacheHitStream = "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n" +
+	"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":2048,\"completion_tokens\":8,\"prompt_tokens_details\":{\"cached_tokens\":1536}}}\n\n" +
+	"data: [DONE]\n\n"
+
+// CacheCheck concurrency contract (prd R5/A6/A7): a second check on the same
+// provider while one is running returns ErrCacheCheckInFlight; the check
+// holds no probe in-flight slot, so a manual probe on the same provider runs
+// to completion while the check is parked; after completion the slot is
+// freed; and none of it appends to results/<id>.jsonl beyond the probe's own
+// record.
+func TestCacheCheckInFlightConflictAndProbeIndependence(t *testing.T) {
+	block := make(chan struct{})
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n++
+		count := n
+		mu.Unlock()
+		if count == 1 {
+			<-block // hold hop 1 of the first check open
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, cacheHitStream)
+	}))
+	defer srv.Close()
+	eng, st := newTestEngine(t)
+	p := addProvider(t, st, "cc-conflict", srv.URL, 0, true) // manual-only: no scheduler noise
+	eng.Start(context.Background())
+
+	type outcome struct {
+		rec store.CacheCheckRecord
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		rec, err := eng.CacheCheck(p.ID)
+		done <- outcome{rec, err}
+	}()
+	waitFor(t, 3*time.Second, "first cache check to reach the endpoint", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return n >= 1
+	})
+
+	// Same provider, second check → conflict.
+	if _, err := eng.CacheCheck(p.ID); !errors.Is(err, ErrCacheCheckInFlight) {
+		t.Fatalf("second CacheCheck error = %v, want ErrCacheCheckInFlight", err)
+	}
+	// The check takes no probe slot: a manual probe on the same provider
+	// completes while the check is parked.
+	if eng.Probing(p.ID) {
+		t.Fatal("a cache check must not mark the provider as probing")
+	}
+	pres, err := eng.ProbeNow(p.ID)
+	if err != nil || pres.Status != probe.StatusOK {
+		t.Fatalf("ProbeNow during a cache check = (%v, %v), want ok", pres, err)
+	}
+
+	close(block)
+	select {
+	case oc := <-done:
+		if oc.err != nil {
+			t.Fatalf("first CacheCheck: %v", oc.err)
+		}
+		if oc.rec.Verdict != cachecheck.VerdictSupported {
+			t.Fatalf("first CacheCheck verdict = %q (evidence %q), want supported", oc.rec.Verdict, oc.rec.Evidence)
+		}
+		if oc.rec.Revision != p.Revision || oc.rec.CheckedAt == 0 {
+			t.Fatalf("record header = revision %d checkedAt %d, want %d/non-zero", oc.rec.Revision, oc.rec.CheckedAt, p.Revision)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("first cache check did not finish after release")
+	}
+
+	// Slot freed after completion: a fresh check runs immediately.
+	rec, err := eng.CacheCheck(p.ID)
+	if err != nil {
+		t.Fatalf("CacheCheck after completion: %v", err)
+	}
+	if rec.Verdict != cachecheck.VerdictSupported {
+		t.Fatalf("second run verdict = %q, want supported", rec.Verdict)
+	}
+
+	// Exactly one results record exists — the probe's. Cache checks never
+	// append to results/<id>.jsonl (prd A6).
+	if got := st.ResultCount(p.ID); got != 1 {
+		t.Fatalf("ResultCount = %d, want 1 (only the manual probe's record)", got)
+	}
+	eng.Shutdown(2 * time.Second)
+}
+
+// Disabled providers may be cache-checked, and the outcome persists only to
+// cachecheck/<id>.json — the provider's probe history stays empty and no
+// auto-probe fires (prd R4/R5, A6/A7).
+func TestCacheCheckDisabledProviderAndIsolation(t *testing.T) {
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, cacheHitStream)
+	}))
+	defer srv.Close()
+	eng, st := newTestEngine(t)
+	// Disabled with a 1s interval: were Enabled (wrongly) consulted for
+	// scheduling, ticks would fire during the test.
+	p := addProvider(t, st, "cc-disabled", srv.URL, 1, false)
+	eng.Start(context.Background())
+	time.Sleep(700 * time.Millisecond)
+	mu.Lock()
+	if n != 0 {
+		mu.Unlock()
+		t.Fatalf("disabled provider was auto-probed %d times, want 0", n)
+	}
+	mu.Unlock()
+
+	rec, err := eng.CacheCheck(p.ID)
+	if err != nil {
+		t.Fatalf("CacheCheck on a disabled provider: %v", err)
+	}
+	if rec.Verdict != cachecheck.VerdictSupported {
+		t.Fatalf("verdict = %q (evidence %q), want supported", rec.Verdict, rec.Evidence)
+	}
+	if len(rec.Hops) != 2 || rec.Hops[1].CachedTokens == nil || *rec.Hops[1].CachedTokens != 1536 {
+		t.Fatalf("per-hop evidence = %+v, want two hops with the captured cached_tokens", rec.Hops)
+	}
+
+	loaded, ok := st.LoadCacheCheck(p.ID)
+	if !ok || loaded.Verdict != cachecheck.VerdictSupported || loaded.Revision != p.Revision {
+		t.Fatalf("LoadCacheCheck = (%+v, %v), want the persisted supported record", loaded, ok)
+	}
+	if got := st.ResultCount(p.ID); got != 0 {
+		t.Fatalf("ResultCount = %d, want 0: a cache check must not write results (prd A6)", got)
+	}
+	eng.Shutdown(2 * time.Second)
+}
+
+// Unknown providers keep the ProbeNow error semantics.
+func TestCacheCheckUnknownProvider(t *testing.T) {
+	eng, _ := newTestEngine(t)
+	eng.Start(context.Background())
+	if _, err := eng.CacheCheck(999); err == nil || !strings.Contains(err.Error(), "unknown provider 999") {
+		t.Fatalf("CacheCheck(999) error = %v, want the unknown-provider error", err)
 	}
 }

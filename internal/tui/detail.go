@@ -64,8 +64,12 @@ type pageCursor struct {
 // paginated results table. Rebuilt from the store on every refresh;
 // selection (provider id, table scroll offset, cursor stack) lives in uiState.
 type detailPane struct {
-	st  *store.Store
-	eng view.EngineStatus
+	st *store.Store
+	// eng is the full EngineAPI: viewOf only needs the EngineStatus slice,
+	// the persistent cache-check block needs LatestCacheCheck (task
+	// 10-22-cache-check) — a pure store read, safe on every redraw. nil
+	// means no engine is attached (tests): the cache block is skipped then.
+	eng view.EngineAPI
 
 	filters filterState
 
@@ -77,7 +81,7 @@ type detailPane struct {
 	nextCursor *pageCursor // set when the last fetch had more rows
 }
 
-func newDetailPane(st *store.Store, eng view.EngineStatus) *detailPane {
+func newDetailPane(st *store.Store, eng view.EngineAPI) *detailPane {
 	return &detailPane{
 		st:      st,
 		eng:     eng,
@@ -91,7 +95,7 @@ func newDetailPane(st *store.Store, eng view.EngineStatus) *detailPane {
 // outer focus cycle.
 func (d *detailPane) renderText(p store.Provider) string {
 	v := d.viewOf(p)
-	return d.header(v) + d.summary(v) + d.statsBlock(p, v) + d.charts(p) + d.resultsTable(p, v)
+	return d.header(v) + d.summary(v) + d.cacheCheckBlock(p) + d.statsBlock(p, v) + d.charts(p) + d.resultsTable(p, v)
 }
 
 func (d *detailPane) viewOf(p store.Provider) view.ProviderView {
@@ -133,6 +137,36 @@ func (d *detailPane) summary(v view.ProviderView) string {
 		storage = "\n[red::b]存储异常：" + tview.Escape(v.StorageError) + "[-]"
 	}
 	return fmt.Sprintf("最近定时探测：%s%s\n", last, storage)
+}
+
+// cacheCheckBlock is the persistent 前缀缓存 block (task 10-22-cache-check,
+// prd R4/A5): the selected provider's latest detection verdict, rendered on
+// every redraw — "未检测" before the first check, then verdict + check time +
+// evidence summary, with the stale hint once the provider revision moved past
+// the record. All labels come from view.CacheCheckViewOf (the single owner);
+// the free-text evidence passes tviewEscape like the results-table error
+// column. Read cost: LatestCacheCheck is one small-file store read per
+// redraw — only for the selected provider, once per 5s tick, negligible next
+// to the MetricsPack snapshot the stats block already takes.
+func (d *detailPane) cacheCheckBlock(p store.Provider) string {
+	if d.eng == nil {
+		return ""
+	}
+	rec, found := d.eng.LatestCacheCheck(p.ID)
+	v := view.CacheCheckViewOf(p, rec, found)
+	if v.Verdict == "" {
+		return "[gray]" + view.CmdMsgCacheCheckNone + "[white]\n"
+	}
+	at := time.UnixMilli(v.CheckedAt).Format("01-02 15:04:05")
+	out := "[" + cacheVerdictColor(v.Verdict) + "::b]" +
+		view.CmdMsgCacheCheckDone(v.VerdictLabel, at) + "[-]"
+	if v.Stale && v.StaleHint != "" {
+		out += " [orange]" + tviewEscape(v.StaleHint) + "[-]"
+	}
+	if v.EvidenceText != "" {
+		out += "\n[gray]" + tviewEscape(v.EvidenceText) + "[white]"
+	}
+	return out + "\n"
 }
 
 func (d *detailPane) statsBlock(p store.Provider, v view.ProviderView) string {

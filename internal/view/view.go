@@ -53,6 +53,17 @@ type EngineAPI interface {
 	ProbeNow(id int) (*store.Result, error)
 	// IsInFlight reports whether err means "a probe is already running".
 	IsInFlight(err error) bool
+	// CacheCheck runs one two-hop prefix-cache detection to completion and
+	// returns the persisted record (task 10-22-cache-check, prd R1–R5). It
+	// is fully independent of the probe machinery above.
+	CacheCheck(id int) (store.CacheCheckRecord, error)
+	// LatestCacheCheck returns the provider's latest persisted cache-check
+	// record, or (zero, false) when none exists yet.
+	LatestCacheCheck(id int) (store.CacheCheckRecord, bool)
+	// IsCacheCheckInFlight reports whether err means "a cache check is
+	// already running" — the CacheCheck twin of IsInFlight (the server maps
+	// it to 409, the TUI to a conflict hint).
+	IsCacheCheckInFlight(err error) bool
 }
 
 // ProviderMutator forwards configuration changes to the engine so it can

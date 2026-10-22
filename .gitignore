@@ -35,3 +35,6 @@ go.work.sum
 # build outputs (root binary only — the leading slash keeps cmd/llm-monitor/ tracked)
 dist/
 /llm-monitor
+
+# Python bytecode (scripts/ helpers)
+__pycache__/

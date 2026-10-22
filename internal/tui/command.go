@@ -44,11 +44,11 @@ type command struct {
 	run func(u *ui, arg string)
 }
 
-// commands is the 15-entry registry (prd R1 + review-fixpack-2 F10: /page).
-// Assembled in init() like mos-runner: /help closes over the table itself,
-// which a var initializer could not reference without a cycle. No command
-// name may be a prefix of another — Enter's unique-prefix execution and the
-// ambiguous-entry guard below both lean on that invariant.
+// commands is the 16-entry registry (15 after review-fixpack-2 F10, +/cache
+// task 10-22-cache-check). Assembled in init() like mos-runner: /help closes
+// over the table itself, which a var initializer could not reference without
+// a cycle. No command name may be a prefix of another — Enter's unique-prefix
+// execution and the ambiguous-entry guard below both lean on that invariant.
 var commands []command
 
 func init() {
@@ -57,6 +57,14 @@ func init() {
 		{name: "/probe", desc: "立即探测当前对象", needSel: true, run: func(u *ui, arg string) {
 			if p, ok := u.deps.Store.GetProvider(u.overview.selectedID()); ok {
 				u.probeNow(p)
+			}
+		}},
+		// /cache (task 10-22-cache-check, prd R3): the manual prefix-cache
+		// detection — same selection semantics as /probe, fully independent
+		// of the probe machinery (own mutex, own timeout, own persistence).
+		{name: "/cache", desc: "对当前对象执行前缀缓存检测", needSel: true, run: func(u *ui, arg string) {
+			if p, ok := u.deps.Store.GetProvider(u.overview.selectedID()); ok {
+				u.cacheCheckNow(p)
 			}
 		}},
 		{name: "/report", desc: "导出当前对象 HTML 报告", run: func(u *ui, arg string) { u.exportCurrent() }},

@@ -64,8 +64,8 @@ func statusOf(u *ui) string { return u.statusBar.GetText(true) }
 // --- registry shape (prd R1) ---
 
 func TestCommandRegistryShape(t *testing.T) {
-	if len(commands) != 15 {
-		t.Fatalf("registry has %d commands, want 15", len(commands))
+	if len(commands) != 16 {
+		t.Fatalf("registry has %d commands, want 16", len(commands))
 	}
 	seen := map[string]bool{}
 	wantArgs := map[string][]string{
@@ -75,8 +75,9 @@ func TestCommandRegistryShape(t *testing.T) {
 		"/page":     {"next", "prev"},
 	}
 	wantSel := map[string]bool{
-		"/probe": true, "/toggle": true, "/edit": true, "/delete": true,
-		"/window": true, "/revision": true, "/source": true, "/page": true,
+		"/probe": true, "/cache": true, "/toggle": true, "/edit": true,
+		"/delete": true, "/window": true, "/revision": true, "/source": true,
+		"/page": true,
 	}
 	for _, c := range commands {
 		if !strings.HasPrefix(c.name, "/") {
@@ -105,7 +106,7 @@ func TestCommandRegistryShape(t *testing.T) {
 			t.Errorf("%s needSel = %v, want %v", c.name, c.needSel, wantSel[c.name])
 		}
 	}
-	for _, name := range []string{"/exit", "/probe", "/report", "/web", "/settings",
+	for _, name := range []string{"/exit", "/probe", "/cache", "/report", "/web", "/settings",
 		"/toggle", "/new", "/edit", "/delete", "/window", "/revision", "/source",
 		"/page", "/refresh", "/help"} {
 		if !seen[name] {
@@ -134,8 +135,9 @@ func TestFilterCommandPhase(t *testing.T) {
 		{in: ""},
 		{in: "hello"},
 		{in: "w/"},
-		{in: "/", want: []string{"/exit", "/probe", "/report", "/web", "/settings", "/toggle",
+		{in: "/", want: []string{"/exit", "/probe", "/cache", "/report", "/web", "/settings", "/toggle",
 			"/new", "/edit", "/delete", "/window", "/revision", "/source", "/page", "/refresh", "/help"}, open: true},
+		{in: "/c", want: []string{"/cache"}, open: true},
 		{in: "/w", want: []string{"/web", "/window"}, open: true},
 		{in: "/window", want: []string{"/window"}, open: true},
 		{in: "/zzz"},
@@ -711,7 +713,7 @@ func TestCommandBarScreenFocusMenuAndRotation(t *testing.T) {
 		t.Fatalf("startup focus = %T, want the command input", focus)
 	}
 
-	// A1: "/" opens the full 15-command menu (14 + /page, review-fixpack-2).
+	// A1: "/" opens the full 16-command menu (15 + /cache, 10-22-cache-check).
 	screen.InjectKey(tcell.KeyRune, '/', tcell.ModNone)
 	time.Sleep(150 * time.Millisecond)
 	var open bool
@@ -722,14 +724,17 @@ func TestCommandBarScreenFocusMenuAndRotation(t *testing.T) {
 		items = len(u.cmd.menuItems)
 		menuText = u.cmd.menu.GetText(true)
 	})
-	if !open || items != 15 {
-		t.Fatalf("menu after /: open=%v items=%d, want the full 15", open, items)
+	if !open || items != 16 {
+		t.Fatalf("menu after /: open=%v items=%d, want the full 16", open, items)
 	}
 	if !strings.Contains(menuText, "/help") {
 		t.Fatalf("menu text %q must list /help", menuText)
 	}
 	if !strings.Contains(menuText, "/page") {
 		t.Fatalf("menu text %q must list /page", menuText)
+	}
+	if !strings.Contains(menuText, "/cache") {
+		t.Fatalf("menu text %q must list /cache", menuText)
 	}
 
 	// A1: prefix filtering leaves /web + /window.

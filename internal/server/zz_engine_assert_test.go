@@ -19,6 +19,10 @@ type engineAdapter struct {
 
 func (a engineAdapter) IsInFlight(err error) bool { return errors.Is(err, engine.ErrInFlight) }
 
+func (a engineAdapter) IsCacheCheckInFlight(err error) bool {
+	return errors.Is(err, engine.ErrCacheCheckInFlight)
+}
+
 // Compile-time proof that main can pass an adapted engine to New, and that
 // the shared view package consumes the engine slice structurally (the server
 // hands its EngineAPI straight to view.ViewOf without an adapter, and

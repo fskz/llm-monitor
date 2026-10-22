@@ -26,6 +26,14 @@ const STATUS_TEXT = {
   protocol_error: "错误（协议）", empty: "错误（空回复）", aborted: "错误（中断）",
   cancelled: "已取消",
 };
+// Cache-check verdict labels (10-22-cache-check). DUAL-SYNC CONTRACT: this
+// table and CACHE_VERDICT_NONE are the web-side copies of the single Go
+// owners (view.CacheCheckVerdictText / view.CacheCheckVerdictNone) and are
+// locked by internal/view/cachecheck_sync_test.go — same rule as STATUS_TEXT.
+const CACHE_VERDICT_TEXT = {
+  supported: "已开启", unsupported: "未开启", unknown: "无法判定", failed: "检测失败",
+};
+const CACHE_VERDICT_NONE = "未检测";
 
 /* ---------- helpers ----------
  * DUAL-SYNC CONTRACT (review-fixpack-2 F14/F15): the fmt* functions below
@@ -198,6 +206,7 @@ async function openDetail(id) {
   const p = providers.find((x) => x.id === id);
   $("detail-title").textContent = p ? `${p.name} · ${p.model}` : `#${id}`;
   await refreshDetail();
+  loadLatestCacheCheck(); // 常驻前缀缓存卡片：打开详情时拉取最近判定
 }
 
 async function refreshDetail() {
@@ -656,6 +665,80 @@ async function manualProbe() {
   }
 }
 
+/* ---------- prefix cache check (10-22-cache-check) ---------- */
+
+// cacheCheck triggers the two-hop detection via the manualProbe pattern:
+// button lock while running, the 409 conflict wording, the inline result
+// card. The POST response IS the latest persisted record (prd R4) — no
+// follow-up GET needed after a check.
+async function cacheCheck() {
+  const btn = $("btn-cache-check");
+  const box = $("cache-result");
+  btn.disabled = true; btn.textContent = "正在检测…";
+  box.classList.add("hidden");
+  try {
+    const v = await api(`/api/providers/${currentId}/cache-check`, { method: "POST" });
+    renderCacheCheck(v);
+  } catch (e) {
+    box.innerHTML = `<p class="form-error">${e.status === 409 ? "正在检测：该对象已有在途检测请求" : esc(e.message)}</p>`;
+    box.classList.remove("hidden");
+  } finally {
+    btn.disabled = false; btn.textContent = "前缀缓存检测";
+  }
+}
+
+// renderCacheCheck paints the persistent verdict card into #cache-result:
+// label (local CACHE_VERDICT_TEXT copy, never a fabricated 0), check time,
+// stale hint, evidence text and the two-hop evidence table. Unobserved
+// numbers render "—" (null discipline); every server-derived string passes
+// esc().
+function renderCacheCheck(v) {
+  const box = $("cache-result");
+  const label = v.verdict ? (CACHE_VERDICT_TEXT[v.verdict] || esc(v.verdict)) : CACHE_VERDICT_NONE;
+  const badgeCls = v.verdict === "supported" ? "ok"
+    : v.verdict === "unsupported" ? "stale"
+    : v.verdict === "failed" ? "fail" : "unknown";
+  const stale = v.stale && v.stale_hint ? ` <span class="muted">（${esc(v.stale_hint)}）</span>` : "";
+  const hops = (v.hops || []).map((h, i) => `
+      <tr>
+        <td>第 ${i + 1} 跳</td>
+        <td>${esc(h.status_label || h.status)}</td>
+        <td>${fmtMs(h.ttft_ms)}</td>
+        <td>${fmtMs(h.total_ms)}</td>
+        <td>${h.cached_tokens ?? "—"}</td>
+        <td>${h.prompt_tokens ?? "—"}</td>
+      </tr>`).join("");
+  box.innerHTML = `
+    <table>
+      <tr><td>结论</td><td><span class="badge ${badgeCls}">${label}</span>${stale}</td></tr>
+      <tr><td>检测时间</td><td>${v.checked_at ? fmtTime(v.checked_at) : "—"}</td></tr>
+      ${v.evidence_text ? `<tr><td>证据</td><td class="wrap">${esc(v.evidence_text)}</td></tr>` : ""}
+    </table>
+    ${hops ? `<table>
+      <thead><tr><th>跳</th><th>状态</th><th>TTFT</th><th>总耗时</th><th>cached_tokens</th><th>prompt_tokens</th></tr></thead>
+      <tbody>${hops}</tbody>
+    </table>` : ""}`;
+  box.classList.remove("hidden");
+}
+
+// loadLatestCacheCheck fetches the persisted latest verdict for the
+// persistent detail card. Deliberately NOT on the 5s detail cadence: the
+// record changes only when a check is triggered — from this page the POST
+// response re-renders the card directly, so a third per-tick request would
+// be read amplification for a value that almost never changes. Detail open +
+// check completion cover it.
+async function loadLatestCacheCheck() {
+  const id = currentId;
+  if (id == null) return;
+  try {
+    const v = await api(`/api/providers/${id}/cache-check`);
+    if (currentId === id) renderCacheCheck(v); // switched/closed meanwhile: drop
+  } catch (e) {
+    if (e.status === 404) { closeDetail(); return; } // object gone, like refreshDetail
+    console.warn("load cache check failed:", e); // transient: the card simply stays as-is
+  }
+}
+
 /* ---------- wiring ---------- */
 
 function resetPaging() { pageCursor = null; nextCursor = null; prevCursors = []; }
@@ -676,6 +759,7 @@ function init() {
   $("form-provider").addEventListener("submit", saveProvider);
   $("dlg-cancel").addEventListener("click", () => $("dlg-provider").close());
   $("btn-probe").addEventListener("click", manualProbe);
+  $("btn-cache-check").addEventListener("click", cacheCheck);
   $("btn-export").addEventListener("click", () => {
     if (currentId == null) return;
     const qs = `provider=${currentId}&revision=${encodeURIComponent(revisionParam())}` +

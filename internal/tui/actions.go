@@ -87,7 +87,7 @@ func (u *ui) toggleCurrent() {
 
 func (u *ui) probeNow(p store.Provider) {
 	if u.deps.Engine == nil {
-		u.setStatus("[red]探测引擎未就绪[-]")
+		u.setStatus("[red]" + view.CmdMsgEngineNotReady + "[-]")
 		return
 	}
 	id := p.ID
@@ -116,6 +116,39 @@ func (u *ui) probeNow(p store.Provider) {
 				u.setStatus(fmt.Sprintf("[green]%s[-]%s · TTFT %s · 总耗时 %s%s",
 					view.StatusText(res.Status), suffix,
 					fmtMs(res.TTFTMs), fmtMs(&res.TotalMs), tpot))
+			}
+		})
+	}()
+}
+
+// cacheCheckNow runs one two-hop prefix-cache detection for the selected
+// provider (/cache, task 10-22-cache-check): flash on dispatch, the engine
+// call on a background goroutine, the outcome back on the app goroutine via
+// queueDraw — the probeNow pattern. Fully independent of the probe machinery
+// (prd R5): the conflict flash covers the engine's own per-provider
+// cache-check mutex, and on success the redraw picks up the freshly persisted
+// record for the detail block (prd R4).
+func (u *ui) cacheCheckNow(p store.Provider) {
+	if u.deps.Engine == nil {
+		u.setStatus("[red]" + view.CmdMsgEngineNotReady + "[-]")
+		return
+	}
+	id := p.ID
+	u.setStatus("[yellow]" + view.CmdMsgCacheCheckRunning + "[-]")
+	go func() {
+		rec, err := u.deps.Engine.CacheCheck(id)
+		u.queueDraw(func() {
+			switch {
+			case err != nil && u.deps.Engine.IsCacheCheckInFlight(err):
+				u.setStatus("[orange]" + view.CmdMsgCacheCheckInFlight + "[-]")
+			case err != nil:
+				u.setStatus("[red]" + tviewEscape(view.CmdMsgCacheCheckFailed(err.Error())) + "[-]")
+			default:
+				v := view.CacheCheckViewOf(p, rec, true)
+				at := time.UnixMilli(v.CheckedAt).Format("01-02 15:04:05")
+				u.setStatus("[" + cacheVerdictColor(v.Verdict) + "]" +
+					view.CmdMsgCacheCheckDone(v.VerdictLabel, at) + "[-]")
+				u.redrawLocked() // the persisted record lands in the detail block now
 			}
 		})
 	}()

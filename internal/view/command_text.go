@@ -70,6 +70,42 @@ const (
 	CmdMsgPageNoPrev = "已是第一页"
 )
 
+// Cache-check command feedback (task 10-22-cache-check): every /cache flash
+// wording lives here per the same ownership rule (the registry desc is the
+// only TUI-side string); the verdict labels themselves come from
+// CacheCheckVerdictText via CacheCheckViewOf, never duplicated here.
+const (
+	// CmdMsgCacheCheckRunning: /cache dispatched; the two-hop detection runs
+	// on the background goroutine under its own fixed timeout budget.
+	CmdMsgCacheCheckRunning = "正在检测前缀缓存…"
+	// CmdMsgCacheCheckInFlight: the engine's per-provider cache-check mutex is
+	// taken — the TUI twin of the server's 409, worded like the probe
+	// in-flight flash (actions.go probeNow).
+	CmdMsgCacheCheckInFlight = "正在检测：该对象已有在途检测请求"
+	// CmdMsgCacheCheckNone is the unchecked placeholder line of the detail
+	// block (no check time — there is nothing to time-stamp). It keeps the
+	// "前缀缓存：" prefix owned by this file alone, like CmdMsgCacheCheckDone.
+	CmdMsgCacheCheckNone = "前缀缓存：" + CacheCheckVerdictNone
+	// CmdMsgEngineNotReady: an engine-dependent command ran with no engine
+	// wired (tests only in practice; cmd always passes one). probeNow and
+	// cacheCheckNow share it.
+	CmdMsgEngineNotReady = "探测引擎未就绪"
+)
+
+// CmdMsgCacheCheckFailed formats the failure flash (any non-conflict error
+// from Engine.CacheCheck — unknown provider, storage failure, …).
+func CmdMsgCacheCheckFailed(err string) string {
+	return "缓存检测失败：" + err
+}
+
+// CmdMsgCacheCheckDone formats the completion flash and the detail block's
+// headline: the Chinese verdict label (CacheCheckVerdictText of the record's
+// verdict) plus the check time. The TUI supplies the formatted time; an
+// unchecked provider renders CacheCheckVerdictNone without a time instead.
+func CmdMsgCacheCheckDone(label, checkedAt string) string {
+	return "前缀缓存：" + label + "（" + checkedAt + "）"
+}
+
 // CmdMsgNoArg formats the feedback for a zero-argument command that received
 // an argument (design.md §3 execute step 4).
 func CmdMsgNoArg(name string) string {

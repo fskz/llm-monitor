@@ -61,6 +61,10 @@ func assertHTTPStatus(t *testing.T, o Outcome, want int) {
 // 1. Normal stream: role event -> text deltas -> finish_reason=length -> [DONE] => ok.
 func TestNormalStreamOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Deterministic TTFT: an in-process mock answers in well under a
+		// millisecond and firstContentAt.Sub(start).Milliseconds() truncates
+		// that to 0, which used to fail the >0 assert below intermittently.
+		time.Sleep(10 * time.Millisecond)
 		sseWrite(w,
 			`data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}`,
 			"",
@@ -596,6 +600,72 @@ func TestUsageZeroCaptured(t *testing.T) {
 	assertStatus(t, o, StatusOK)
 	if o.PromptTokens == nil || *o.PromptTokens != 0 {
 		t.Fatalf("PromptTokens = %v, want pointer to 0", o.PromptTokens)
+	}
+}
+
+// prompt_tokens_details.cached_tokens capture (task 10-22-cache-check): same
+// observational discipline as the other usage fields — capture is independent
+// of the include_usage switch, a present value (including 0) is kept, and a
+// stripped details object leaves nil. The 0-vs-nil distinction is exactly
+// what the cache-check verdict hinges on, and classification is unaffected
+// in every case.
+func TestCachedTokensCapture(t *testing.T) {
+	cases := []struct {
+		name    string
+		usage   string
+		wantNil bool
+		want    int64
+	}{
+		{
+			name:    "cached hit",
+			usage:   `"usage":{"prompt_tokens":2048,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":1024}}`,
+			wantNil: false,
+			want:    1024,
+		},
+		{
+			name:    "cached zero is evidence",
+			usage:   `"usage":{"prompt_tokens":2048,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":0}}`,
+			wantNil: false,
+			want:    0,
+		},
+		{
+			name:    "details stripped",
+			usage:   `"usage":{"prompt_tokens":2048,"completion_tokens":8}`,
+			wantNil: true,
+		},
+		{
+			name:    "details present, cached_tokens omitted",
+			usage:   `"usage":{"prompt_tokens":2048,"completion_tokens":8,"prompt_tokens_details":{}}`,
+			wantNil: true,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				sseWrite(w,
+					`data: {"choices":[{"delta":{"content":"Hi"}}]}`,
+					"",
+					`data: {"choices":[{"delta":{},"finish_reason":"stop"}],`+tc.usage+`}`,
+					"",
+					"data: [DONE]",
+					"")
+			}))
+			defer srv.Close()
+			// No IncludeUsage: capture is switch-independent — an endpoint
+			// volunteering usage is recorded regardless of what we asked for.
+			o := Do(context.Background(), testClient(), testTarget(srv.URL, 3000, 5000))
+			assertStatus(t, o, StatusOK)
+			switch {
+			case tc.wantNil && o.CachedTokens != nil:
+				t.Fatalf("CachedTokens = %d, want nil", *o.CachedTokens)
+			case !tc.wantNil && o.CachedTokens == nil:
+				t.Fatal("CachedTokens = nil, want a value")
+			case !tc.wantNil && *o.CachedTokens != tc.want:
+				t.Fatalf("CachedTokens = %d, want %d", *o.CachedTokens, tc.want)
+			}
+		})
 	}
 }
 

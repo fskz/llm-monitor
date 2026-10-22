@@ -110,7 +110,9 @@ func run(ctx context.Context, deps Deps, screen tcell.Screen) error {
 // the status line migrated out of the right column's bottom.
 func newUI(app *tview.Application, deps Deps) *ui {
 	u := &ui{app: app, deps: deps, quit: make(chan struct{})}
-	u.detail = newDetailPane(deps.Store, engineOrNil(deps.Engine))
+	// detailPane takes the full EngineAPI (its cache-check block reads
+	// LatestCacheCheck); the overview only needs the EngineStatus slice.
+	u.detail = newDetailPane(deps.Store, deps.Engine)
 	u.overview = newOverviewPane(deps.Store, engineOrNil(deps.Engine), u.selectProvider)
 	u.web = newWebPanel(deps)
 	u.cmd = newCommandBar(u)

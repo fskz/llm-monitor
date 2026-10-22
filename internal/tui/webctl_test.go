@@ -16,11 +16,16 @@ import (
 	"llm-monitor/internal/store"
 )
 
-// fakeEngine is a minimal view.EngineAPI for the action tests: ProbeNow
-// returns a canned result; IsInFlight recognizes the sentinel error.
+// fakeEngine is a minimal view.EngineAPI for the action tests: ProbeNow and
+// CacheCheck return their canned values; IsInFlight/IsCacheCheckInFlight
+// recognize the sentinel errors ("in-flight" / "cache-in-flight").
 type fakeEngine struct {
 	probeResult *store.Result
 	probeErr    error
+	cacheRec    store.CacheCheckRecord
+	cacheErr    error
+	latest      store.CacheCheckRecord
+	latestFound bool
 }
 
 func (f *fakeEngine) Probing(id int) bool  { return false }
@@ -29,6 +34,25 @@ func (f *fakeEngine) ProbeNow(id int) (*store.Result, error) {
 	return f.probeResult, f.probeErr
 }
 func (f *fakeEngine) IsInFlight(err error) bool { return err != nil && err.Error() == "in-flight" }
+
+// Cache-check slice (task 10-22-cache-check): configurable canned values so
+// the /cache tests can drive every branch — record, conflict, failure — and
+// the detail block can render a chosen latest record.
+func (f *fakeEngine) CacheCheck(id int) (store.CacheCheckRecord, error) {
+	if f.cacheErr == nil {
+		// Mirror engine.CacheCheck → store.SaveCacheCheck: a completed check
+		// becomes the latest record the detail block then reads. The queueDraw
+		// handover happens-after this write, so no extra locking is needed.
+		f.latest, f.latestFound = f.cacheRec, true
+	}
+	return f.cacheRec, f.cacheErr
+}
+func (f *fakeEngine) LatestCacheCheck(id int) (store.CacheCheckRecord, bool) {
+	return f.latest, f.latestFound
+}
+func (f *fakeEngine) IsCacheCheckInFlight(err error) bool {
+	return err != nil && err.Error() == "cache-in-flight"
+}
 
 // The on-demand web panel lifecycle (A2): start binds and reports the URL;
 // start twice re-reports without rebinding; stop releases the port; stop

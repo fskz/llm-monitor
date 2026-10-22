@@ -211,6 +211,60 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, pv)
 }
 
+// handleCacheCheck runs one two-hop prefix-cache detection synchronously
+// (task 10-22-cache-check, prd R3). Same shape as handleProbe: the handler
+// blocks until the check finishes — worst case ~2 minutes at the fixed 60s
+// per-hop budget (the panel's http.Serve runs without timeouts, so a long
+// request is never cut short) — 404 for an unknown provider, 409 when a
+// check for the same provider is already running. No request body.
+func (s *Server) handleCacheCheck(w http.ResponseWriter, r *http.Request) {
+	if s.eng == nil {
+		writeError(w, http.StatusServiceUnavailable, "探测引擎未就绪")
+		return
+	}
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	p, exists := s.st.GetProvider(id)
+	if !exists {
+		writeError(w, http.StatusNotFound, "监测对象不存在")
+		return
+	}
+	rec, err := s.eng.CacheCheck(id)
+	if err != nil {
+		if s.eng.IsCacheCheckInFlight(err) {
+			writeError(w, http.StatusConflict, "正在检测：该对象已有在途检测请求")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "缓存检测失败："+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, view.CacheCheckViewOf(p, rec, true))
+}
+
+// handleLatestCacheCheck returns the provider's latest persisted cache-check
+// record via view.CacheCheckViewOf, empty state included (prd R4: the detail
+// page always shows the latest verdict). Read-only like every GET: no
+// same-origin guard (only writes are origin-checked, §5.4).
+func (s *Server) handleLatestCacheCheck(w http.ResponseWriter, r *http.Request) {
+	if s.eng == nil {
+		writeError(w, http.StatusServiceUnavailable, "探测引擎未就绪")
+		return
+	}
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	p, exists := s.st.GetProvider(id)
+	if !exists {
+		writeError(w, http.StatusNotFound, "监测对象不存在")
+		return
+	}
+	rec, found := s.eng.LatestCacheCheck(id)
+	writeJSON(w, http.StatusOK, view.CacheCheckViewOf(p, rec, found))
+}
+
 // pathID extracts and parses the {id} path parameter.
 func pathID(w http.ResponseWriter, r *http.Request, param string) (int, bool) {
 	id, err := strconv.Atoi(r.PathValue(param))

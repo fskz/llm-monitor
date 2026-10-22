@@ -75,6 +75,11 @@ type Outcome struct {
 	// consume). Observational only — never part of classification.
 	PromptTokens     *int
 	CompletionTokens *int
+	// CachedTokens is the endpoint-reported prompt-cache hit size
+	// (usage.prompt_tokens_details.cached_tokens); nil when the field is
+	// absent (not reported or stripped by a proxy). Observational only —
+	// never part of classification.
+	CachedTokens *int64
 }
 
 // Do performs one streaming probe.
@@ -140,6 +145,7 @@ type scanState struct {
 	// never consulted by classification. Last event with usage wins.
 	promptTokens     *int
 	completionTokens *int
+	cachedTokens     *int64
 }
 
 func (r *run) execute(client *http.Client) Outcome {
@@ -405,5 +411,6 @@ func (r *run) finish(o Outcome) Outcome {
 	o.OutputPreview = truncateRunes(replaceKey(r.st.preview.String(), r.target.APIKey), maxPreviewRunes)
 	o.PromptTokens = r.st.promptTokens
 	o.CompletionTokens = r.st.completionTokens
+	o.CachedTokens = r.st.cachedTokens
 	return o
 }

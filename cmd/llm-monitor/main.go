@@ -87,9 +87,16 @@ func main() {
 }
 
 // engineAdapter adapts *engine.Engine to the shared view interfaces
-// (view.EngineAPI / view.ProviderMutator).
+// (view.EngineAPI / view.ProviderMutator). CacheCheck/LatestCacheCheck pass
+// through the embedding; the error classifiers below map the engine's two
+// distinct in-flight sentinels (probe / cache check) so the server can tell
+// the two 409s apart.
 type engineAdapter struct {
 	*engine.Engine
 }
 
 func (a engineAdapter) IsInFlight(err error) bool { return errors.Is(err, engine.ErrInFlight) }
+
+func (a engineAdapter) IsCacheCheckInFlight(err error) bool {
+	return errors.Is(err, engine.ErrCacheCheckInFlight)
+}

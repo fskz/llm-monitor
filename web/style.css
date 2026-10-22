@@ -131,9 +131,10 @@ select, input, textarea {
   padding: 14px 16px; margin-bottom: 14px;
 }
 .manual-box h3, .results-box h3 { margin: 0 0 8px; font-size: 14px; }
-#manual-result { margin-top: 10px; }
-#manual-result table { margin-top: 6px; }
-#manual-result pre {
+/* #cache-result reuses the manual-probe result box styling (10-22-cache-check). */
+#manual-result, #cache-result { margin-top: 10px; }
+#manual-result table, #cache-result table { margin-top: 6px; }
+#manual-result pre, #cache-result pre {
   background: #f6f8fa; border: 1px solid var(--border); border-radius: 6px;
   padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px;
 }

@@ -12,6 +12,11 @@
 // disabling, removing or shutting down cancels it, and the engine rewrites
 // the outcome to status "cancelled" (excluded from statistics) before
 // persisting it, so operator actions never count as target failures.
+//
+// Beside probes, the engine also runs manual prefix-cache detections
+// (CacheCheck, task 10-22-cache-check): those are fully independent of the
+// probe machinery — separate per-provider in-flight tracking, no results
+// appends, no statistics — and persist only their own latest-record file.
 package engine
 
 import (
@@ -25,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"llm-monitor/internal/cachecheck"
 	"llm-monitor/internal/probe"
 	"llm-monitor/internal/store"
 )
@@ -32,6 +38,11 @@ import (
 // ErrInFlight is returned by ProbeNow when the provider already has a probe
 // running: scheduled and manual probes share one in-flight slot (§7.1).
 var ErrInFlight = errors.New("probe already in flight")
+
+// ErrCacheCheckInFlight is returned by CacheCheck when the provider already
+// has a cache check running. Cache checks own their per-provider mutex and
+// share nothing with the probe in-flight slot (task 10-22-cache-check R5).
+var ErrCacheCheckInFlight = errors.New("cache check already in flight")
 
 // windDownWait bounds how long Update/Remove wait for a canceled scheduler
 // goroutine (and its in-flight probe) to finish persisting its final record.
@@ -78,6 +89,12 @@ type Engine struct {
 
 	storageMu  sync.Mutex
 	storageErr string
+
+	// Cache-check state (task 10-22-cache-check): a per-provider mutex fully
+	// independent of the probe in-flight slots, so a check can run while the
+	// provider is being probed and vice versa (prd R5).
+	cacheMu       sync.Mutex
+	cacheInFlight map[int]bool
 }
 
 // New returns an engine probing through client and persisting through st.
@@ -89,11 +106,12 @@ func New(st *store.Store, client *http.Client) *Engine {
 	}
 	baseCtx, cancel := context.WithCancel(context.Background())
 	return &Engine{
-		store:   st,
-		client:  client,
-		baseCtx: baseCtx,
-		baseCxl: cancel,
-		runners: make(map[int]*providerRunner),
+		store:         st,
+		client:        client,
+		baseCtx:       baseCtx,
+		baseCxl:       cancel,
+		runners:       make(map[int]*providerRunner),
+		cacheInFlight: make(map[int]bool),
 	}
 }
 
@@ -318,6 +336,106 @@ func (e *Engine) Probing(id int) bool {
 	r := e.runners[id]
 	e.mu.Unlock()
 	return r != nil && r.inFlight.Load()
+}
+
+// CacheCheck runs the two-hop prefix-cache detection for the provider
+// synchronously in the caller's goroutine and persists the outcome as the
+// provider's latest cache-check record (task 10-22-cache-check, prd R1–R5).
+// It is deliberately independent of probe scheduling: it takes no probe
+// in-flight slot, never appends to results/<id>.jsonl, never touches health
+// statistics, and runs for disabled and manual-only providers alike.
+// ErrCacheCheckInFlight is returned when a check for the same provider is
+// already running; other providers are unaffected. A panic is recovered and
+// returned as an error (same protection as ProbeNow, §5.5). The provider
+// snapshot is taken from the store — not the scheduler runner — so the
+// check does not depend on scheduling state; the runner's lifecycle context
+// (falling back to the engine base context) still bounds the hops so a
+// shutdown cancels in-flight checks instead of orphaning them.
+func (e *Engine) CacheCheck(id int) (rec store.CacheCheckRecord, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			fmt.Fprintf(os.Stderr, "engine: cache check panic: %v\n%s", v, debug.Stack())
+			rec, err = store.CacheCheckRecord{}, fmt.Errorf("engine: cache check panic: %v", v)
+		}
+	}()
+	e.mu.Lock()
+	if e.stopped {
+		e.mu.Unlock()
+		return store.CacheCheckRecord{}, fmt.Errorf("engine: shutting down")
+	}
+	ctx := e.baseCtx
+	if r := e.runners[id]; r != nil {
+		ctx = r.ctx
+	}
+	// wg.Add while holding mu: Shutdown can never sit between the stopped
+	// check and wg.Wait (same reason as ProbeNow).
+	e.wg.Add(1)
+	e.mu.Unlock()
+	defer e.wg.Done()
+
+	p, ok := e.store.GetProvider(id)
+	if !ok {
+		return store.CacheCheckRecord{}, fmt.Errorf("engine: unknown provider %d", id)
+	}
+
+	e.cacheMu.Lock()
+	if e.cacheInFlight[id] {
+		e.cacheMu.Unlock()
+		return store.CacheCheckRecord{}, ErrCacheCheckInFlight
+	}
+	e.cacheInFlight[id] = true
+	e.cacheMu.Unlock()
+	defer func() {
+		e.cacheMu.Lock()
+		delete(e.cacheInFlight, id)
+		e.cacheMu.Unlock()
+	}()
+
+	res := cachecheck.Run(ctx, e.client, cachecheck.Target{
+		BaseURL: p.BaseURL,
+		APIKey:  p.APIKey,
+		Model:   p.Model,
+	})
+	rec = cacheCheckRecord(p, res)
+	if err := e.store.SaveCacheCheck(p.ID, rec); err != nil {
+		return rec, fmt.Errorf("engine: persist cache check: %w", err)
+	}
+	return rec, nil
+}
+
+// LatestCacheCheck returns the provider's latest persisted cache-check
+// record, or (zero, false) when none exists yet. It is a pure store read
+// (LoadCacheCheck never fails), exposed as the EngineAPI convenience so the
+// front ends need no separate store plumbing for the read side.
+func (e *Engine) LatestCacheCheck(id int) (store.CacheCheckRecord, bool) {
+	return e.store.LoadCacheCheck(id)
+}
+
+// cacheCheckRecord maps a cachecheck.Result onto the persisted record; the
+// provider's current revision marks freshness for the UI (a base_url/model
+// change bumps it and flags the record stale).
+func cacheCheckRecord(p store.Provider, res cachecheck.Result) store.CacheCheckRecord {
+	rec := store.CacheCheckRecord{
+		Verdict:   res.Verdict,
+		Evidence:  res.Evidence,
+		FailedHop: res.FailedHop,
+		CheckedAt: time.Now().UnixMilli(),
+		Revision:  p.Revision,
+		Hops:      make([]store.CacheCheckHop, len(res.Hops)),
+	}
+	for i, h := range res.Hops {
+		rec.Hops[i] = store.CacheCheckHop{
+			Status:           h.Status,
+			HTTPStatus:       h.HTTPStatus,
+			TTFTMs:           h.TTFTMs,
+			TotalMs:          h.TotalMs,
+			PromptTokens:     h.PromptTokens,
+			CompletionTokens: h.CompletionTokens,
+			CachedTokens:     h.CachedTokens,
+			ErrDetail:        h.ErrDetail,
+		}
+	}
+	return rec
 }
 
 // runProbe executes one probe against the provider snapshot and fills the

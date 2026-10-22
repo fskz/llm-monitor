@@ -18,6 +18,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"llm-monitor/internal/cachecheck"
 	"llm-monitor/internal/probe"
 	"llm-monitor/internal/store"
 	"llm-monitor/internal/view"
@@ -26,9 +27,14 @@ import (
 // errInFlight mirrors engine.ErrInFlight for the fake engine below.
 var errInFlight = errors.New("probe already in flight")
 
+// errCacheCheckInFlight mirrors engine.ErrCacheCheckInFlight for the fake
+// engine below (the server maps it through IsCacheCheckInFlight → 409).
+var errCacheCheckInFlight = errors.New("cache check already in flight")
+
 // fakeEngine is a test double of EngineAPI. When targetURL is set it runs a
 // real probe.Do against a mocked OpenAI-compatible endpoint, so the probe
-// endpoint is exercised end to end through the server.
+// endpoint is exercised end to end through the server; CacheCheck likewise
+// runs a real cachecheck.Run and persists through the store.
 type fakeEngine struct {
 	mu       sync.Mutex
 	st       *store.Store
@@ -37,6 +43,8 @@ type fakeEngine struct {
 	// probe behavior knobs for the next ProbeNow call
 	inFlight bool
 	result   *store.Result
+	// cacheInFlight makes the next CacheCheck call report the conflict.
+	cacheInFlight bool
 }
 
 func (f *fakeEngine) Probing(id int) bool {
@@ -106,6 +114,65 @@ func (f *fakeEngine) ProbeNow(id int) (*store.Result, error) {
 		return nil, err
 	}
 	return &res, nil
+}
+
+func (f *fakeEngine) IsCacheCheckInFlight(err error) bool {
+	return errors.Is(err, errCacheCheckInFlight)
+}
+
+// CacheCheck mirrors engine.CacheCheck: a real two-hop cachecheck.Run against
+// the provider's (mocked) endpoint, persisted as the latest record.
+func (f *fakeEngine) CacheCheck(id int) (store.CacheCheckRecord, error) {
+	f.mu.Lock()
+	inFlight := f.cacheInFlight
+	f.cacheInFlight = false
+	f.mu.Unlock()
+	if inFlight {
+		return store.CacheCheckRecord{}, errCacheCheckInFlight
+	}
+	p, ok := f.st.GetProvider(id)
+	if !ok {
+		return store.CacheCheckRecord{}, fmt.Errorf("unknown provider %d", id)
+	}
+	res := cachecheck.Run(context.Background(), &http.Client{}, cachecheck.Target{
+		BaseURL: p.BaseURL,
+		APIKey:  p.APIKey,
+		Model:   p.Model,
+	})
+	rec := fakeCacheCheckRecord(p, res)
+	if err := f.st.SaveCacheCheck(p.ID, rec); err != nil {
+		return rec, err
+	}
+	return rec, nil
+}
+
+func (f *fakeEngine) LatestCacheCheck(id int) (store.CacheCheckRecord, bool) {
+	return f.st.LoadCacheCheck(id)
+}
+
+// fakeCacheCheckRecord mirrors engine.cacheCheckRecord for the fake.
+func fakeCacheCheckRecord(p store.Provider, res cachecheck.Result) store.CacheCheckRecord {
+	rec := store.CacheCheckRecord{
+		Verdict:   res.Verdict,
+		Evidence:  res.Evidence,
+		FailedHop: res.FailedHop,
+		CheckedAt: time.Now().UnixMilli(),
+		Revision:  p.Revision,
+		Hops:      make([]store.CacheCheckHop, len(res.Hops)),
+	}
+	for i, h := range res.Hops {
+		rec.Hops[i] = store.CacheCheckHop{
+			Status:           h.Status,
+			HTTPStatus:       h.HTTPStatus,
+			TTFTMs:           h.TTFTMs,
+			TotalMs:          h.TotalMs,
+			PromptTokens:     h.PromptTokens,
+			CompletionTokens: h.CompletionTokens,
+			CachedTokens:     h.CachedTokens,
+			ErrDetail:        h.ErrDetail,
+		}
+	}
+	return rec
 }
 
 // fakeMutator records engine-side mutations.
@@ -598,6 +665,165 @@ func TestProbeEndpoint(t *testing.T) {
 		fmt.Sprintf("/api/results?provider=%d&source=manual", id), "", nil)
 	if res.StatusCode != 200 || !strings.Contains(body, `"status":"ok"`) {
 		t.Errorf("manual results = %d (%s)", res.StatusCode, body)
+	}
+}
+
+/* ---------- 6b. cache-check endpoints (task 10-22-cache-check) ---------- */
+
+// mockLLMCached is an OpenAI-compatible streaming endpoint whose first
+// len(cached) requests report the given cached_tokens values in the usage
+// event ("" strips prompt_tokens_details entirely); further requests repeat
+// the last script. This is what the cache-check endpoints run against
+// through the fake engine's real cachecheck.Run.
+func mockLLMCached(t *testing.T, cached ...string) *httptest.Server {
+	t.Helper()
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		i := n
+		if i >= len(cached) {
+			i = len(cached) - 1
+		}
+		n++
+		c := cached[i]
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		usage := `"usage":{"prompt_tokens":2048,"completion_tokens":8`
+		if c != "" {
+			usage += `,"prompt_tokens_details":{"cached_tokens":` + c + `}`
+		}
+		usage += `}`
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],"+usage+"}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestCacheCheckEndpoints(t *testing.T) {
+	s, eng, _ := newTestServer(t)
+	llm := mockLLMCached(t, "0", "2048") // cold miss, warm hit → supported
+	p := addProviderDirect(t, s.st, func(pp *store.Provider) { pp.BaseURL = llm.URL })
+	target := fmt.Sprintf("/api/providers/%d/cache-check", p.ID)
+
+	// GET before any check → the "未检测" empty state; hops serializes [].
+	res, body := serve(t, s, "GET", target, "", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("get empty = %d (%s), want 200", res.StatusCode, body)
+	}
+	var v view.CacheCheckView
+	if err := json.Unmarshal([]byte(body), &v); err != nil {
+		t.Fatalf("decode empty view: %v", err)
+	}
+	if v.Verdict != "" || v.VerdictLabel != view.CacheCheckVerdictNone || v.CheckedAt != 0 {
+		t.Fatalf("empty view = %+v, want the 未检测 empty state", v)
+	}
+	if !strings.Contains(body, `"hops":[]`) {
+		t.Errorf("empty state body must serialize hops as []: %s", body)
+	}
+
+	// POST runs the real two-hop detection → supported (warm hop 2048).
+	res, body = serve(t, s, "POST", target, "", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("post = %d (%s), want 200", res.StatusCode, body)
+	}
+	if err := json.Unmarshal([]byte(body), &v); err != nil {
+		t.Fatalf("decode view: %v", err)
+	}
+	if v.Verdict != "supported" || v.VerdictLabel != "已开启" {
+		t.Fatalf("verdict = %q/%q, want supported/已开启", v.Verdict, v.VerdictLabel)
+	}
+	if v.Stale || v.StaleHint != "" {
+		t.Errorf("fresh record: stale = %v hint = %q, want false/empty", v.Stale, v.StaleHint)
+	}
+	if v.CheckedAt == 0 {
+		t.Error("checked_at = 0, want a timestamp")
+	}
+	if len(v.Hops) != 2 {
+		t.Fatalf("hops = %d, want 2 (no short-circuit)", len(v.Hops))
+	}
+	if v.Hops[0].Status != "ok" || v.Hops[0].StatusLabel != "成功" {
+		t.Errorf("hop1 status = %q/%q, want ok/成功", v.Hops[0].Status, v.Hops[0].StatusLabel)
+	}
+	if v.Hops[0].CachedTokens == nil || *v.Hops[0].CachedTokens != 0 {
+		t.Errorf("hop1 cached_tokens = %v, want observed 0", v.Hops[0].CachedTokens)
+	}
+	if v.Hops[1].CachedTokens == nil || *v.Hops[1].CachedTokens != 2048 {
+		t.Errorf("hop2 cached_tokens = %v, want observed 2048", v.Hops[1].CachedTokens)
+	}
+	if !strings.Contains(v.Evidence, "hop1=0") || !strings.Contains(v.Evidence, "hop2=2048") {
+		t.Errorf("evidence = %q, want both hops' cached_tokens", v.Evidence)
+	}
+	if !strings.Contains(v.EvidenceText, "2048") {
+		t.Errorf("evidence_text = %q, want the hop numbers", v.EvidenceText)
+	}
+
+	// GET now returns the persisted latest record (fake engine → store).
+	res, body = serve(t, s, "GET", target, "", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("get latest = %d (%s)", res.StatusCode, body)
+	}
+	if err := json.Unmarshal([]byte(body), &v); err != nil {
+		t.Fatalf("decode latest: %v", err)
+	}
+	if v.Verdict != "supported" || v.CheckedAt == 0 {
+		t.Fatalf("latest view = %+v, want the persisted record", v)
+	}
+
+	// Target change (revision bump) → stale record with the hint.
+	bumped := p
+	bumped.Model = "m2"
+	bumped.Revision = p.Revision + 1
+	if err := s.st.UpdateProvider(bumped); err != nil {
+		t.Fatalf("bump revision: %v", err)
+	}
+	res, body = serve(t, s, "GET", target, "", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("get stale = %d (%s)", res.StatusCode, body)
+	}
+	if err := json.Unmarshal([]byte(body), &v); err != nil {
+		t.Fatal(err)
+	}
+	if !v.Stale || v.StaleHint != "配置已变更，建议重新检测" {
+		t.Fatalf("stale = %v hint = %q, want stale + hint", v.Stale, v.StaleHint)
+	}
+
+	// Unknown provider → 404 on both verbs.
+	if res, _ = serve(t, s, "POST", "/api/providers/999/cache-check", "", nil); res.StatusCode != 404 {
+		t.Errorf("post unknown = %d, want 404", res.StatusCode)
+	}
+	if res, _ = serve(t, s, "GET", "/api/providers/999/cache-check", "", nil); res.StatusCode != 404 {
+		t.Errorf("get unknown = %d, want 404", res.StatusCode)
+	}
+
+	// Check already in flight → 409 with the conflict message.
+	eng.mu.Lock()
+	eng.cacheInFlight = true
+	eng.mu.Unlock()
+	res, body = serve(t, s, "POST", target, "", nil)
+	if res.StatusCode != http.StatusConflict {
+		t.Fatalf("in-flight = %d (%s), want 409", res.StatusCode, body)
+	}
+	if !strings.Contains(body, "正在检测") {
+		t.Errorf("409 body = %s, want the in-flight message", body)
+	}
+}
+
+// CSRF split for the cache-check pair: the POST (write) is origin-checked,
+// the GET (read) never is — same rule as the rest of the API (§5.4).
+func TestCacheCheckOriginProtection(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	p := addProviderDirect(t, s.st, nil)
+	target := fmt.Sprintf("/api/providers/%d/cache-check", p.ID)
+	evil := map[string]string{"Origin": "http://evil.com"}
+
+	if res, body := serve(t, s, "POST", target, "", evil); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("evil origin POST = %d (%s), want 403", res.StatusCode, body)
+	}
+	if res, body := serve(t, s, "GET", target, "", evil); res.StatusCode != 200 {
+		t.Fatalf("evil origin GET = %d (%s), want 200 (reads are never origin-checked)", res.StatusCode, body)
 	}
 }
 

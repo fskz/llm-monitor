@@ -19,8 +19,26 @@ type streamEvent struct {
 }
 
 type usageInfo struct {
-	PromptTokens     *int `json:"prompt_tokens"`
-	CompletionTokens *int `json:"completion_tokens"`
+	PromptTokens        *int                 `json:"prompt_tokens"`
+	CompletionTokens    *int                 `json:"completion_tokens"`
+	PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details"`
+}
+
+// promptTokensDetails is the OpenAI-style prompt-token breakdown. It exists
+// purely as observational evidence for the prefix-cache detection; judgment
+// never reads it.
+type promptTokensDetails struct {
+	CachedTokens *int64 `json:"cached_tokens"`
+}
+
+// cachedTokens returns the nested cached-token value, or nil when the
+// endpoint omits prompt_tokens_details (not reported or stripped by a proxy)
+// or the cached_tokens field inside it.
+func (u *usageInfo) cachedTokens() *int64 {
+	if u == nil || u.PromptTokensDetails == nil {
+		return nil
+	}
+	return u.PromptTokensDetails.CachedTokens
 }
 
 type streamChoice struct {
@@ -104,6 +122,7 @@ func (r *run) handleData(data string) bool {
 	if ev.Usage != nil {
 		r.st.promptTokens = ev.Usage.PromptTokens
 		r.st.completionTokens = ev.Usage.CompletionTokens
+		r.st.cachedTokens = ev.Usage.cachedTokens()
 	}
 	if len(ev.Choices) == 0 {
 		// Usage-only or otherwise choice-less events are skipped, never

@@ -61,6 +61,24 @@ func monitorColor(status string) string {
 	return "white"
 }
 
+// cacheVerdictColor maps a cache-check verdict to its tview color name,
+// consistent with the web panel badge classes the cache card reuses
+// (supported→ok, failed→fail, unknown→unknown; unsupported renders orange
+// like the panel's stale badge).
+func cacheVerdictColor(verdict string) string {
+	switch verdict {
+	case "supported":
+		return "green"
+	case "unsupported":
+		return "orange"
+	case "unknown":
+		return "gray"
+	case "failed":
+		return "red"
+	}
+	return "white"
+}
+
 // tviewEscape shields user/target text before it lands inside a color-tagged
 // status string (brackets would otherwise parse as tags).
 func tviewEscape(s string) string {

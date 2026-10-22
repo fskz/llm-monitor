@@ -156,6 +156,11 @@ type Store struct {
 	maxKeep int
 
 	results map[int]*providerResults
+
+	// cacheMu serializes cachecheck/<id>.json writes and reads; a dedicated
+	// lock so a cache-check save never blocks config/result queries (and
+	// vice versa).
+	cacheMu sync.Mutex
 }
 
 // Dir returns the store's root directory (where config.json and results/
