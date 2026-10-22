@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/10-22-cache-check/prd.md", "reason": "验收清单 A1-A8 逐条核对"}
+{"file": ".trellis/spec/backend/go-conventions.md", "reason": "检查代码是否符合后端契约(status 字符串、JSONL 纪律、CSRF)"}
