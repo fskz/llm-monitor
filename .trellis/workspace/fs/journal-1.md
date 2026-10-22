@@ -246,3 +246,26 @@ grill-me 四路并行全仓库审查(后端核心/服务端+视图/TUI/Web)共 2
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 前缀缓存检测(cache-check)从设计到交付
+<!-- trellis-session: v=2 fp=2854c3ff8effde60 -->
+
+**Date**: 2026-10-22
+**Task**: 前缀缓存检测(cache-check)从设计到交付
+**Branch**: `dev`
+
+### Summary
+
+grilling 三轮收敛设计(混合三态判定/内置长prompt/独立持久化//cache 命名)后按 S1-S8 实现:probe 观察性捕获 cached_tokens、cachecheck 新包(两跳编排+judge 矩阵,任一跳>0即supported)、engine 独立互斥 CacheCheck、view 中文标签单源+双端契约锁、server POST/GET cache-check、TUI /cache+detail 常驻块、Web 按钮+卡片;trellis-check A1-A8 全过。事故与修复:质检代理变异验证用 git checkout 误回滚未提交的 web/app.js,由原实现代理重放恢复并复验。规范沉淀 verdict 双端同步/独立持久化/16 命令;顺手修 TestNormalStreamOK 亚毫秒 TTFT 断言偶发红。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `760ec63` | feat(cachecheck): prefix-cache detection — /cache command, dual-surface check, tri-state verdict |
+| `fdea789` | docs(spec): cache-check contracts sink — verdict label dual-sync, independent persistence, 16-command registry |
+
+### Status
+
+[OK] **Completed**
