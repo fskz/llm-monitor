@@ -196,10 +196,19 @@ protocol_error | empty | aborted | cancelled`
 
 - Prefix-cache detection is an INDEPENDENT module: `internal/cachecheck`
   (imports only `internal/probe`; two sequential `probe.Do` hops with the
-  fixed ≥2048-token prompt, max_tokens 8, forced `include_usage`, TTFT
-  deadline == total deadline so evidence is never cut short). Its per-provider
-  in-flight mutex (`ErrCacheCheckInFlight`) shares NOTHING with the probe
-  slot; a check and a probe may run concurrently on one provider by design.
+  fixed ×96-repetition prompt — counted ~2620 endpoint tokens, clearing the
+  2048-token activation threshold some providers apply (×64 was counted as
+  only 1748 and risked false negatives) — max_tokens 8, forced
+  `include_usage`, TTFT deadline == total deadline so evidence is never cut
+  short). Its per-provider in-flight mutex (`ErrCacheCheckInFlight`) shares
+  NOTHING with the probe slot; a check and a probe may run concurrently on
+  one provider by design.
+- A hop with status `empty` is a USABLE observation, never a failure
+  (2026-10-23): the check consumes prefill-side evidence only, and real
+  endpoints do stream 200 + clean [DONE] + full usage with zero content
+  (finish_reason=length burning the whole tiny budget on invisible output,
+  observed at max_tokens 8 and 64 alike). Judge's failure set is exactly the
+  prd R1 list: HTTP/conn/stream/protocol errors and timeouts.
 - Verdict machine values (`supported|unsupported|unknown|failed`) live in
   `cachecheck`; `cached_tokens > 0` on ANY hop is conclusive (supported) even
   when the other hop's field was relay-stripped. Chinese labels have exactly

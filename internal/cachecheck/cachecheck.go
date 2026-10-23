@@ -51,13 +51,15 @@ const (
 )
 
 // promptSentence is the deterministic filler repeated into the detection
-// prompt. 64 repetitions land around 9.5KB (~2400 tokens at ~4 bytes per
-// token), inside the 8–12KB window the design calls for.
+// prompt. 96 repetitions are counted as ~2620 prompt tokens by the endpoints
+// observed so far (×64 was counted as 1748 — below the 2048-token activation
+// threshold some providers apply, which would false-negative the verdict), so
+// ×96 clears the threshold with margin.
 const promptSentence = "The prefix-cache probe sends this deterministic paragraph so that both requests share a byte-identical prompt of well over two thousand tokens. "
 
 // detectionPrompt is the fixed prompt sent on both hops. Built once; the
 // requests must stay byte-identical or a cache could never hit.
-var detectionPrompt = strings.Repeat(promptSentence, 64)
+var detectionPrompt = strings.Repeat(promptSentence, 96)
 
 // Target identifies the endpoint under test. The engine constructs it from
 // a provider snapshot; the detection parameters themselves (prompt,
@@ -139,9 +141,23 @@ func runHops(ctx context.Context, client *http.Client, t Target, timeoutMs int) 
 	return judge(res)
 }
 
+// usableHop reports whether a hop's observation can feed the verdict. ok is
+// the normal case; empty (HTTP 200, clean [DONE], usage delivered, zero
+// content) is equally usable because this check consumes prefill-side
+// evidence only — content is never part of the judgment. Real endpoints do
+// return such streams: observed 2026-10-23, a model burned the entire
+// completion budget on invisible output (finish_reason=length, no content
+// delta, at max_tokens 8 and 64 alike), and discarding those hops threw away
+// valid cached_tokens evidence and reported a bogus "failed".
+func usableHop(h *Hop) bool {
+	return h.Status == probe.StatusOK || h.Status == probe.StatusEmpty
+}
+
 // judge derives the verdict from the two hops (prd R1). Pure function,
 // table-tested:
-//  1. any hop not ok            → failed (first failing hop number + reason)
+//  1. any hop unusable (a status other than ok/empty — HTTP/conn/stream/
+//     protocol errors, timeouts, aborted) → failed (first failing hop
+//     number + reason; prd R1's failure set never included empty)
 //  2. any hop reports the field
 //     with a value > 0          → supported (a positive report is conclusive
 //     even when the other hop's field was stripped)
@@ -152,7 +168,7 @@ func runHops(ctx context.Context, client *http.Client, t Target, timeoutMs int) 
 func judge(r Result) Result {
 	for i := range r.Hops {
 		h := &r.Hops[i]
-		if h.Status != probe.StatusOK {
+		if !usableHop(h) {
 			r.Verdict = VerdictFailed
 			r.FailedHop = i + 1
 			detail := h.ErrDetail

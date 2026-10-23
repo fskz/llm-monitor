@@ -57,6 +57,28 @@ type hopScript struct {
 
 func okHop(cached string) hopScript { return hopScript{events: hitEvents(cached)} }
 
+// emptyEvents reproduces the zero-content stream observed on a real endpoint
+// (2026-10-23): role delta, a usage-bearing finish_reason=length, [DONE] —
+// the completion budget burns entirely on invisible output, so probe
+// classifies the hop as empty while the prefill-side evidence stays intact.
+func emptyEvents(cached string) []string {
+	usage := `"usage":{"prompt_tokens":2048,"completion_tokens":8`
+	if cached != "" {
+		usage += `,"prompt_tokens_details":{"cached_tokens":` + cached + `}`
+	}
+	usage += `}`
+	return []string{
+		`data: {"choices":[{"delta":{"role":"assistant","content":""}}]}`,
+		"",
+		`data: {"choices":[{"delta":{},"finish_reason":"length"}],` + usage + `}`,
+		"",
+		"data: [DONE]",
+		"",
+	}
+}
+
+func emptyHop(cached string) hopScript { return hopScript{events: emptyEvents(cached)} }
+
 func failHop(status int) hopScript { return hopScript{httpStatus: status} }
 
 // scriptServer answers requests in order from scripts (further requests
@@ -141,6 +163,23 @@ func TestJudgeMatrix(t *testing.T) {
 			wantVerdict: VerdictUnknown,
 		},
 		{
+			// empty (200 + clean DONE + usage, zero content) is a usable
+			// observation, not a failure — the live incident of 2026-10-23.
+			name:        "empty hops with zero cached",
+			hops:        [2]Hop{{Status: probe.StatusEmpty, CachedTokens: int64Ptr(0)}, {Status: probe.StatusEmpty, CachedTokens: int64Ptr(0)}},
+			wantVerdict: VerdictUnsupported,
+		},
+		{
+			name:        "empty hop with positive cached",
+			hops:        [2]Hop{{Status: probe.StatusEmpty, CachedTokens: int64Ptr(0)}, {Status: probe.StatusEmpty, CachedTokens: int64Ptr(2048)}},
+			wantVerdict: VerdictSupported,
+		},
+		{
+			name:        "ok hop plus empty hop with stripped field",
+			hops:        [2]Hop{{Status: probe.StatusOK, CachedTokens: int64Ptr(0)}, {Status: probe.StatusEmpty}},
+			wantVerdict: VerdictUnknown,
+		},
+		{
 			name:        "first hop failed wins over later evidence",
 			hops:        [2]Hop{{Status: probe.StatusHTTPError, HTTPStatus: intPtr(500), ErrDetail: "HTTP 500: boom"}, {Status: probe.StatusOK, CachedTokens: int64Ptr(2048)}},
 			wantVerdict: VerdictFailed,
@@ -213,6 +252,15 @@ func TestRunVerdicts(t *testing.T) {
 			wantVerdict:    VerdictUnknown,
 			evidenceHas:    []string{"TTFT", "ratio", "auxiliary only"},
 			wantCachedHops: [2]*int64{nil, nil},
+		},
+		{
+			// The 2026-10-23 incident, replayed end-to-end: both hops return
+			// 200 + usage with cached_tokens 0 but no content delta. The
+			// check must judge from the usage evidence, not report failed.
+			name:           "zero-content streams with cached 0",
+			scripts:        []hopScript{emptyHop("0"), emptyHop("0")},
+			wantVerdict:    VerdictUnsupported,
+			wantCachedHops: [2]*int64{int64Ptr(0), int64Ptr(0)},
 		},
 		{
 			name:           "first hop fails",
@@ -329,20 +377,23 @@ func TestRunTimeoutFailed(t *testing.T) {
 	}
 }
 
-// The deterministic prompt must stay in the designed 8–12KB window so the
-// ~2048-token cache-activation threshold is comfortably cleared, and both
-// hops share it byte-for-byte by construction.
+// The deterministic prompt must stay in the designed 12–18KB window: ×64
+// repetitions were counted as only 1748 prompt tokens by a real endpoint —
+// below the 2048-token activation threshold some providers apply — so ×96
+// (~2620 counted tokens) clears it with margin. Both hops share the prompt
+// byte-for-byte by construction.
 func TestDetectionPromptShape(t *testing.T) {
-	if len(detectionPrompt) < 8*1024 {
-		t.Fatalf("detection prompt is %d bytes, want >= 8192", len(detectionPrompt))
+	if len(detectionPrompt) < 12*1024 {
+		t.Fatalf("detection prompt is %d bytes, want >= 12288", len(detectionPrompt))
 	}
-	if len(detectionPrompt) > 12*1024 {
-		t.Fatalf("detection prompt is %d bytes, want <= 12288", len(detectionPrompt))
+	if len(detectionPrompt) > 18*1024 {
+		t.Fatalf("detection prompt is %d bytes, want <= 18432", len(detectionPrompt))
 	}
 	// Conservative English heuristic: ~4 bytes per token (whitespace
-	// included). 8KB therefore bounds ~2048 tokens from below.
-	if len(detectionPrompt)/4 < 2048 {
-		t.Fatalf("detection prompt est. %d tokens, want >= 2048", len(detectionPrompt)/4)
+	// included) must bound ~2600 tokens from below even if a tokenizer
+	// counts as loosely as the observed 1748-per-9.5KB one.
+	if len(detectionPrompt)/4 < 2600 {
+		t.Fatalf("detection prompt est. %d tokens, want >= 2600", len(detectionPrompt)/4)
 	}
 	if !strings.HasSuffix(detectionPrompt, " ") || strings.Contains(detectionPrompt[:len(detectionPrompt)-1], "  ") {
 		t.Fatal("detection prompt must be a clean repetition with single separators")
