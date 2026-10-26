@@ -274,9 +274,10 @@ protocol_error | empty | aborted | cancelled`
 ## Command bar (task 10-16, replaces all rune shortcuts; +10-16-review-fixpack-2)
 
 - **The command registry is the only action entry**: `internal/tui/command.go`
-  `commands` table (`name`/`args` enum/`desc`/`needSel`/`run`) — the 16
+  `commands` table (`name`/`args` enum/`desc`/`needSel`/`run`) — the 17
   commands (14 base + `/page next|prev` for detail pagination, bare = next
-  page, + `/cache` prefix-cache check, 2026-10-22)
+  page, + `/cache` prefix-cache check and `/exportcache` snapshot export,
+  2026-10-22/23)
   replaced the old rune keys (q/p/r/w/,/x, n/e/d, 1/2/3/R/S);
   `keys.go` is gone. `/help` renders FROM the registry. The registry has two
   static copies that MUST be synced when a command is added/renamed/its args
