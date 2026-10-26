@@ -64,8 +64,8 @@ func statusOf(u *ui) string { return u.statusBar.GetText(true) }
 // --- registry shape (prd R1) ---
 
 func TestCommandRegistryShape(t *testing.T) {
-	if len(commands) != 16 {
-		t.Fatalf("registry has %d commands, want 16", len(commands))
+	if len(commands) != 17 {
+		t.Fatalf("registry has %d commands, want 17", len(commands))
 	}
 	seen := map[string]bool{}
 	wantArgs := map[string][]string{
@@ -106,7 +106,7 @@ func TestCommandRegistryShape(t *testing.T) {
 			t.Errorf("%s needSel = %v, want %v", c.name, c.needSel, wantSel[c.name])
 		}
 	}
-	for _, name := range []string{"/exit", "/probe", "/cache", "/report", "/web", "/settings",
+	for _, name := range []string{"/exit", "/probe", "/cache", "/exportcache", "/report", "/web", "/settings",
 		"/toggle", "/new", "/edit", "/delete", "/window", "/revision", "/source",
 		"/page", "/refresh", "/help"} {
 		if !seen[name] {
@@ -135,9 +135,10 @@ func TestFilterCommandPhase(t *testing.T) {
 		{in: ""},
 		{in: "hello"},
 		{in: "w/"},
-		{in: "/", want: []string{"/exit", "/probe", "/cache", "/report", "/web", "/settings", "/toggle",
+		{in: "/", want: []string{"/exit", "/probe", "/cache", "/exportcache", "/report", "/web", "/settings", "/toggle",
 			"/new", "/edit", "/delete", "/window", "/revision", "/source", "/page", "/refresh", "/help"}, open: true},
 		{in: "/c", want: []string{"/cache"}, open: true},
+		{in: "/e", want: []string{"/exit", "/exportcache", "/edit"}, open: true},
 		{in: "/w", want: []string{"/web", "/window"}, open: true},
 		{in: "/window", want: []string{"/window"}, open: true},
 		{in: "/zzz"},
@@ -713,7 +714,7 @@ func TestCommandBarScreenFocusMenuAndRotation(t *testing.T) {
 		t.Fatalf("startup focus = %T, want the command input", focus)
 	}
 
-	// A1: "/" opens the full 16-command menu (15 + /cache, 10-22-cache-check).
+	// A1: "/" opens the full 17-command menu (15 + /cache + /exportcache).
 	screen.InjectKey(tcell.KeyRune, '/', tcell.ModNone)
 	time.Sleep(150 * time.Millisecond)
 	var open bool
@@ -724,8 +725,8 @@ func TestCommandBarScreenFocusMenuAndRotation(t *testing.T) {
 		items = len(u.cmd.menuItems)
 		menuText = u.cmd.menu.GetText(true)
 	})
-	if !open || items != 16 {
-		t.Fatalf("menu after /: open=%v items=%d, want the full 16", open, items)
+	if !open || items != 17 {
+		t.Fatalf("menu after /: open=%v items=%d, want the full 17", open, items)
 	}
 	if !strings.Contains(menuText, "/help") {
 		t.Fatalf("menu text %q must list /help", menuText)

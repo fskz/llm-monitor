@@ -74,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/providers/{id}/probe", s.sameOrigin(s.handleProbe))
 	mux.HandleFunc("POST /api/providers/{id}/cache-check", s.sameOrigin(s.handleCacheCheck))
 	mux.HandleFunc("GET /api/providers/{id}/cache-check", s.handleLatestCacheCheck)
+	mux.HandleFunc("GET /api/cache-check/export", s.handleCacheCheckExport)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/series", s.handleSeries)
 	mux.HandleFunc("GET /api/results", s.handleResults)

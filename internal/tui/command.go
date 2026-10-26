@@ -44,8 +44,9 @@ type command struct {
 	run func(u *ui, arg string)
 }
 
-// commands is the 16-entry registry (15 after review-fixpack-2 F10, +/cache
-// task 10-22-cache-check). Assembled in init() like mos-runner: /help closes
+// commands is the 17-entry registry (15 after review-fixpack-2 F10, +/cache
+// task 10-22-cache-check, +/exportcache snapshot export). Assembled in
+// init() like mos-runner: /help closes
 // over the table itself, which a var initializer could not reference without
 // a cycle. No command name may be a prefix of another — Enter's unique-prefix
 // execution and the ambiguous-entry guard below both lean on that invariant.
@@ -67,6 +68,10 @@ func init() {
 				u.cacheCheckNow(p)
 			}
 		}},
+		// /exportcache: the all-providers JSON snapshot of the latest
+		// verdicts — selection-independent by design (the snapshot is
+		// per-tool); the panel twin is GET /api/cache-check/export.
+		{name: "/exportcache", desc: "导出全部对象缓存检测快照（JSON）", run: func(u *ui, arg string) { u.exportCacheSnapshot() }},
 		{name: "/report", desc: "导出当前对象 HTML 报告", run: func(u *ui, arg string) { u.exportCurrent() }},
 		{name: "/web", desc: "拉起 / 关闭 Web 面板", run: func(u *ui, arg string) { u.toggleWeb() }},
 		{name: "/settings", desc: "打开全局设置", run: func(u *ui, arg string) { u.openSettingsModal() }},

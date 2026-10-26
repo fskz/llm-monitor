@@ -106,6 +106,18 @@ func CmdMsgCacheCheckDone(label, checkedAt string) string {
 	return "前缀缓存：" + label + "（" + checkedAt + "）"
 }
 
+// CmdMsgCacheExportDone formats the /exportcache success flash: the written
+// file path. The TUI supplies the path (and escapes it for tview itself).
+func CmdMsgCacheExportDone(path string) string {
+	return "缓存判定快照已导出：" + path
+}
+
+// CmdMsgCacheExportFailed formats the /exportcache failure flash (directory
+// creation or file write errors).
+func CmdMsgCacheExportFailed(err string) string {
+	return "导出缓存判定快照失败：" + err
+}
+
 // CmdMsgNoArg formats the feedback for a zero-argument command that received
 // an argument (design.md §3 execute step 4).
 func CmdMsgNoArg(name string) string {

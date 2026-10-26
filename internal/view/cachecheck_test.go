@@ -181,3 +181,45 @@ func TestCacheCheckEvidenceText(t *testing.T) {
 		t.Errorf("unsupported evidence_text must not carry the unknown-only wording: %q", v.EvidenceText)
 	}
 }
+
+// The export snapshot assembles one entry per provider — provider context
+// plus the full CacheCheckView — with unchecked providers riding along as
+// 未检测 and checks never nil ([] discipline, GET /api/cache-check/export
+// and /exportcache share the assembly).
+func TestCacheCheckSnapshotOf(t *testing.T) {
+	p1 := ccProvider()
+	p2 := store.Provider{ID: 8, Name: "q", BaseURL: "http://127.0.0.1:9/v1", Model: "m2", Revision: 1}
+	rec := store.CacheCheckRecord{
+		Verdict: "unsupported", Revision: p1.Revision, CheckedAt: 1700000000000,
+		Hops: []store.CacheCheckHop{{Status: "ok", TotalMs: 900}},
+	}
+	lookup := func(id int) (store.CacheCheckRecord, bool) {
+		if id == p1.ID {
+			return rec, true
+		}
+		return store.CacheCheckRecord{}, false
+	}
+
+	snap := CacheCheckSnapshotOf([]store.Provider{p1, p2}, lookup)
+	if snap.GeneratedAt <= 0 {
+		t.Fatal("generated_at = 0, want a timestamp")
+	}
+	if len(snap.Checks) != 2 {
+		t.Fatalf("checks = %d, want 2 (unchecked providers included)", len(snap.Checks))
+	}
+	got, unchecked := snap.Checks[0], snap.Checks[1]
+	if got.ProviderName != "p" || got.Model != "m" || got.BaseURL != p1.BaseURL || got.Revision != p1.Revision {
+		t.Errorf("entry context = %+v, want the provider's identity fields", got)
+	}
+	if got.ProviderID != p1.ID || got.Verdict != "unsupported" || got.VerdictLabel != "未开启" || len(got.Hops) != 1 {
+		t.Errorf("entry view = %+v, want the assembled CacheCheckView", got.CacheCheckView)
+	}
+	if unchecked.Verdict != "" || unchecked.VerdictLabel != CacheCheckVerdictNone || len(unchecked.Hops) != 0 {
+		t.Errorf("unchecked entry = %+v, want the 未检测 empty state", unchecked.CacheCheckView)
+	}
+
+	empty := CacheCheckSnapshotOf(nil, lookup)
+	if empty.Checks == nil || len(empty.Checks) != 0 {
+		t.Fatalf("checks = %#v, want an empty non-nil slice", empty.Checks)
+	}
+}

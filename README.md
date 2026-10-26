@@ -30,6 +30,7 @@ go build -o llm-monitor ./cmd/llm-monitor
 | `/toggle` | — | 启用 / 停用当前对象(停用即停止自动定时探测,手动测试仍可用) |
 | `/probe` | — | 手动探测当前对象 |
 | `/cache` | — | 对当前对象执行前缀缓存检测(结论独立保存,不写入探测记录与统计) |
+| `/exportcache` | — | 导出全部对象最近一次缓存判定快照(JSON,写入 `reports/`) |
 | `/window` | `1h` / `24h` / `7d` | 时间窗:直选,或裸执行循环切换 |
 | `/revision` | `current` / `all` | 版本(当前 / 全部)筛选 |
 | `/source` | `scheduled` / `manual` / `all` | 来源(定时 / 手动 / 全部)筛选 |

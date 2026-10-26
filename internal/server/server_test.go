@@ -1520,3 +1520,42 @@ func TestSettingsBodyCapAndReportDirTrim(t *testing.T) {
 		t.Fatalf("saved report_dir = %q, want trimmed %q", sv.ReportDir, base+"/rep")
 	}
 }
+
+// The export endpoint streams the all-providers snapshot of the latest
+// verdicts as a JSON attachment. Store-only by design (no engine
+// involvement), so it must work on the bare test server with no check run.
+func TestCacheCheckExport(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	p := addProviderDirect(t, s.st, nil)
+
+	res, body := serve(t, s, "GET", "/api/cache-check/export", "", nil)
+	if res.StatusCode != 200 {
+		t.Fatalf("export = %d (%s), want 200", res.StatusCode, body)
+	}
+	if cd := res.Header.Get("Content-Disposition"); !strings.HasPrefix(cd, `attachment; filename="llm-monitor-cache-check-`) || !strings.HasSuffix(cd, `.json"`) {
+		t.Errorf("Content-Disposition = %q, want the attachment filename", cd)
+	}
+	if ct := res.Header.Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	var snap view.CacheCheckSnapshotView
+	if err := json.Unmarshal([]byte(body), &snap); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if snap.GeneratedAt == 0 {
+		t.Error("generated_at = 0, want a timestamp")
+	}
+	if len(snap.Checks) != 1 || snap.Checks[0].ProviderID != p.ID {
+		t.Fatalf("checks = %+v, want exactly the provider %d (未检测 included)", snap.Checks, p.ID)
+	}
+	e := snap.Checks[0]
+	if e.ProviderName != p.Name || e.Model != p.Model || e.Revision != p.Revision {
+		t.Errorf("entry context = %+v, want the provider identity fields", e)
+	}
+	if e.Verdict != "" || e.VerdictLabel != view.CacheCheckVerdictNone {
+		t.Errorf("unchecked entry verdict = %q/%q, want the 未检测 empty state", e.Verdict, e.VerdictLabel)
+	}
+	if !strings.Contains(body, `"hops": []`) { // indented export: "hops": []
+		t.Errorf("unchecked entry must serialize hops as []: %s", body)
+	}
+}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,12 +29,9 @@ func (u *ui) exportReport(p store.Provider) (string, error) {
 		filters = u.detail.filters
 	}
 	// Report dir: settings override, else <data>/reports (R5).
-	dir := u.deps.Store.GetSettings().ReportDir
-	if dir == "" {
-		dir = u.deps.Store.Dir() + string(filepath.Separator) + "reports"
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("创建报告目录失败：%w", err)
+	dir, err := u.reportDir()
+	if err != nil {
+		return "", err
 	}
 	path := filepath.Join(dir, view.ReportFilename(p, filters.window))
 	f, err := os.Create(path)
@@ -48,6 +46,44 @@ func (u *ui) exportReport(p store.Provider) (string, error) {
 		return "", fmt.Errorf("渲染报告失败：%w", err)
 	}
 	return path, nil
+}
+
+// reportDir resolves and creates the export directory shared by every
+// export action: the settings override, else <data>/reports (R5).
+func (u *ui) reportDir() (string, error) {
+	dir := u.deps.Store.GetSettings().ReportDir
+	if dir == "" {
+		dir = u.deps.Store.Dir() + string(filepath.Separator) + "reports"
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("创建报告目录失败：%w", err)
+	}
+	return dir, nil
+}
+
+// exportCacheSnapshot writes the all-providers JSON snapshot of the latest
+// cache-check verdicts (/exportcache). No selection is needed — the
+// snapshot is per-tool, not per-provider; unchecked providers are included
+// (未检测) so the file is a complete picture. Same file the panel downloads
+// via GET /api/cache-check/export.
+func (u *ui) exportCacheSnapshot() {
+	dir, err := u.reportDir()
+	if err != nil {
+		u.setStatus("[red]" + tviewEscape(view.CmdMsgCacheExportFailed(err.Error())) + "[-]")
+		return
+	}
+	snap := view.CacheCheckSnapshotOf(u.deps.Store.GetProviders(), u.deps.Store.LoadCacheCheck)
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		u.setStatus("[red]" + tviewEscape(view.CmdMsgCacheExportFailed(err.Error())) + "[-]")
+		return
+	}
+	path := filepath.Join(dir, "cache-check-"+time.Now().Format("20060102-150405")+".json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		u.setStatus("[red]" + tviewEscape(view.CmdMsgCacheExportFailed(err.Error())) + "[-]")
+		return
+	}
+	u.setStatus("[green]" + tviewEscape(view.CmdMsgCacheExportDone(path)) + "[-]")
 }
 
 // probeNow runs one manual probe for the selected provider on a background

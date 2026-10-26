@@ -760,6 +760,15 @@ function init() {
   $("dlg-cancel").addEventListener("click", () => $("dlg-provider").close());
   $("btn-probe").addEventListener("click", manualProbe);
   $("btn-cache-check").addEventListener("click", cacheCheck);
+  $("btn-cache-export").addEventListener("click", () => {
+    // GET + Content-Disposition triggers a download; no fetch needed.
+    // All-providers snapshot — no provider context required.
+    const a = document.createElement("a");
+    a.href = "/api/cache-check/export";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
   $("btn-export").addEventListener("click", () => {
     if (currentId == null) return;
     const qs = `provider=${currentId}&revision=${encodeURIComponent(revisionParam())}` +

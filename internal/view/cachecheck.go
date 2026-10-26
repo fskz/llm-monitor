@@ -3,6 +3,7 @@ package view
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"llm-monitor/internal/store"
 )
@@ -109,6 +110,45 @@ func CacheCheckViewOf(p store.Provider, rec store.CacheCheckRecord, found bool) 
 		})
 	}
 	return v
+}
+
+// CacheCheckSnapshotEntry is one provider's row in the JSON export: the
+// full CacheCheckView plus the provider context that keeps the file
+// self-contained once it leaves the tool (GET /api/cache-check/export and
+// the TUI /exportcache command).
+type CacheCheckSnapshotEntry struct {
+	ProviderName string `json:"provider_name"`
+	Model        string `json:"model"`
+	BaseURL      string `json:"base_url"`
+	Revision     int    `json:"revision"`
+	CacheCheckView
+}
+
+// CacheCheckSnapshotView is the export artifact: every provider's latest
+// verdict at one point in time. Unchecked providers are included (未检测)
+// so the file is a complete picture, not just the checked subset.
+type CacheCheckSnapshotView struct {
+	GeneratedAt int64                     `json:"generated_at"`
+	Checks      []CacheCheckSnapshotEntry `json:"checks"`
+}
+
+// CacheCheckSnapshotOf assembles the snapshot from the provider list and a
+// latest-record lookup (store.LoadCacheCheck on both call sites). checks is
+// never nil so a provider-less tool still serializes [], not null.
+func CacheCheckSnapshotOf(providers []store.Provider, lookup func(int) (store.CacheCheckRecord, bool)) CacheCheckSnapshotView {
+	out := CacheCheckSnapshotView{GeneratedAt: time.Now().UnixMilli(), Checks: []CacheCheckSnapshotEntry{}}
+	for _, p := range providers {
+		rec, found := lookup(p.ID)
+		e := CacheCheckSnapshotEntry{
+			ProviderName: p.Name,
+			Model:        p.Model,
+			BaseURL:      p.BaseURL,
+			Revision:     p.Revision,
+		}
+		e.CacheCheckView = CacheCheckViewOf(p, rec, found)
+		out.Checks = append(out.Checks, e)
+	}
+	return out
 }
 
 // cacheCheckEvidenceText assembles the Chinese summary from a stored record:

@@ -1,9 +1,13 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"llm-monitor/internal/store"
 	"llm-monitor/internal/view"
@@ -263,6 +267,28 @@ func (s *Server) handleLatestCacheCheck(w http.ResponseWriter, r *http.Request) 
 	}
 	rec, found := s.eng.LatestCacheCheck(id)
 	writeJSON(w, http.StatusOK, view.CacheCheckViewOf(p, rec, found))
+}
+
+// handleCacheCheckExport serves the all-providers JSON snapshot of the
+// latest cache-check verdicts as an attachment download (the web twin of
+// the TUI /exportcache command). Store-only — no engine involvement — and
+// read-only like every GET: no same-origin guard (§5.4).
+func (s *Server) handleCacheCheckExport(w http.ResponseWriter, r *http.Request) {
+	snap := view.CacheCheckSnapshotOf(s.st.GetProviders(), s.st.LoadCacheCheck)
+	// Render into a buffer first so an encoding failure surfaces as a clean
+	// 500 instead of a corrupted mid-stream download (headers cannot be
+	// rewritten once written — same discipline as handleReport).
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(snap); err != nil {
+		writeError(w, http.StatusInternalServerError, "导出缓存判定快照失败："+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q",
+		"llm-monitor-cache-check-"+time.Now().Format("20060102-150405")+".json"))
+	_, _ = w.Write(buf.Bytes())
 }
 
 // pathID extracts and parses the {id} path parameter.
